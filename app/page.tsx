@@ -1,19 +1,63 @@
-import React, { useState } from 'react';
+"use client";
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { 
-  LayoutDashboard, Box, FileText, CheckCircle2, 
+  LayoutDashboard, Box, CheckCircle2, 
   Search, BarChart3, Bell, UserCircle, AlertCircle, CheckCircle
 } from 'lucide-react';
 
+type Audit = {
+  id: number;
+  created_at: string;
+  project_name: string;
+  status: string;
+  details: string | null;
+};
+
 export default function Dashboard() {
   const [showForm, setShowForm] = useState(false);
+  const [audits, setAudits] = useState<Audit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [projectName, setProjectName] = useState('');
+  const [status, setStatus] = useState('OK');
+  const [details, setDetails] = useState('');
 
-  // Simulation des données des maquettes (On les connectera à Supabase juste après)
-  const maquettes = [
-    { name: "ARCHI.ifc", status: "REUSSI", score: 98, color: "text-emerald-500", bg: "bg-emerald-50", icon: <CheckCircle className="text-emerald-500" /> },
-    { name: "STRUCTURE.ifc", status: "AVERTISSEMENT", score: 72, color: "text-orange-500", bg: "bg-orange-50", icon: <AlertCircle className="text-orange-500" /> },
-    { name: "MEP_HVAC.ifc", status: "CRITIQUE", score: 45, color: "text-red-500", bg: "bg-red-50", icon: <AlertCircle className="text-red-500" /> },
-    { name: "ELECTRICAL.ifc", status: "REUSSI", score: 92, color: "text-emerald-500", bg: "bg-emerald-50", icon: <CheckCircle className="text-emerald-500" /> },
-  ];
+  async function fetchAudits() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('audits')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) console.error(error);
+    else setAudits(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchAudits(); }, []);
+
+  async function handleSave() {
+    if (!projectName) return alert('Veuillez saisir un nom de maquette');
+    const { error } = await supabase.from('audits').insert({
+      project_name: projectName,
+      status: status,
+      details: details || null,
+    });
+    if (error) { alert('Erreur : ' + error.message); }
+    else {
+      setShowForm(false);
+      setProjectName(''); setStatus('OK'); setDetails('');
+      fetchAudits();
+    }
+  }
+
+  const getStyle = (s: string) => {
+    if (s === 'OK') return { color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'RÉUSSI', icon: <CheckCircle className="text-emerald-500" /> };
+    if (s === 'WARNING') return { color: 'text-orange-500', bg: 'bg-orange-50', label: 'AVERTISSEMENT', icon: <AlertCircle className="text-orange-500" /> };
+    return { color: 'text-red-500', bg: 'bg-red-50', label: 'CRITIQUE', icon: <AlertCircle className="text-red-500" /> };
+  };
+
+  const nbCritiques = audits.filter(a => a.status === 'CRITICAL').length;
+  const nbOk = audits.filter(a => a.status === 'OK').length;
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
@@ -66,44 +110,48 @@ export default function Dashboard() {
             >
               + Charger une nouvelle maquette
             </button>
-          </div>
-
-          {/* STATS CARDS */}
+          </div>          {/* STATS CARDS */}
           <div className="grid grid-cols-3 gap-6 mb-10">
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total des maquettes</p>
-              <p className="text-4xl font-black mt-2">24 <span className="text-sm font-medium text-slate-400 ml-1 italic">IFC Actifs</span></p>
+              <p className="text-4xl font-black mt-2">{audits.length} <span className="text-sm font-medium text-slate-400 ml-1 italic">IFC Actifs</span></p>
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Erreurs Critiques</p>
-              <p className="text-4xl font-black mt-2 text-red-500">12 <span className="text-sm font-medium text-slate-400 ml-1 italic">Sur 4 fichiers</span></p>
+              <p className="text-4xl font-black mt-2 text-red-500">{nbCritiques} <span className="text-sm font-medium text-slate-400 ml-1 italic">fichiers</span></p>
             </div>
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Score Qualité</p>
-              <p className="text-4xl font-black mt-2 text-emerald-500">88% <span className="text-sm font-medium text-slate-400 ml-1 italic">Moyenne</span></p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Maquettes OK</p>
+              <p className="text-4xl font-black mt-2 text-emerald-500">{nbOk} <span className="text-sm font-medium text-slate-400 ml-1 italic">validées</span></p>
             </div>
           </div>
 
-          {/* MAQUETTES FEDEREES SECTION */}
+          {/* MAQUETTES DEPUIS SUPABASE */}
           <h3 className="text-xl font-bold mb-6">Maquettes Fédérées</h3>
-          <div className="grid grid-cols-4 gap-6">
-            {maquettes.map((m, i) => (
-              <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`p-2 rounded-full ${m.bg}`}>{m.icon}</div>
-                  <span className={`text-[10px] font-bold px-2 py-1 rounded ${m.bg} ${m.color}`}>{m.status}</span>
-                </div>
-                <h4 className="font-bold text-slate-800">{m.name}</h4>
-                <p className="text-[10px] text-slate-400 mb-4 italic">Mise à jour il y a 2h</p>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className={`h-full ${m.color.replace('text', 'bg')}`} style={{ width: `${m.score}%` }}></div>
-                </div>
-                <div className="flex justify-end mt-1">
-                   <span className={`text-[10px] font-bold ${m.color}`}>{m.score}%</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          {loading ? (
+            <p className="text-slate-400 italic animate-pulse">Chargement depuis Supabase...</p>
+          ) : audits.length === 0 ? (
+            <p className="text-slate-400 italic">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
+          ) : (
+            <div className="grid grid-cols-4 gap-6">
+              {audits.map((a) => {
+                const style = getStyle(a.status);
+                return (
+                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
+                    </div>
+                    <h4 className="font-bold text-slate-800">{a.project_name}</h4>
+                    <p className="text-[10px] text-slate-400 mb-2 italic">
+                      {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                    {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </main>
 
@@ -115,25 +163,27 @@ export default function Dashboard() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom de la Maquette</label>
-                <input type="text" placeholder="Ex: ARCHI_V2.ifc" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+                <input type="text" value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="Ex: ARCHI_V2.ifc" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Score (%)</label>
                   <input type="number" placeholder="0-100" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
-                </div>
-                <div>
+                </div>                <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Statut</label>
-                  <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm">
-                    <option>REUSSI</option>
-                    <option>AVERTISSEMENT</option>
-                    <option>CRITIQUE</option>
+                  <select value={status} onChange={e => setStatus(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+                    <option value="OK">✅ OK — Réussi</option>
+                    <option value="WARNING">⚠️ WARNING — Avertissement</option>
+                    <option value="CRITICAL">🔴 CRITICAL — Critique</option>
                   </select>
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Détails (optionnel)</label>                <textarea value={details} onChange={e => setDetails(e.target.value)} placeholder="Notes ou observations..." rows={2} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none resize-none" />
+              </div>
               <div className="flex space-x-3 pt-4">
                 <button onClick={() => setShowForm(false)} className="flex-1 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">Annuler</button>
-                <button className="flex-1 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-lg hover:bg-slate-800 shadow-lg">Enregistrer</button>
+                <button onClick={handleSave} className="flex-1 py-2.5 bg-[#f95700] text-white text-sm font-bold rounded-lg hover:bg-orange-700 shadow-lg transition-colors">Enregistrer</button>
               </div>
             </div>
           </div>
