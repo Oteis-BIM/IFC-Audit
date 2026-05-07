@@ -1,10 +1,11 @@
 "use client";
 export const dynamic = 'force-dynamic';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { 
   LayoutDashboard, Box, CheckCircle2, 
-  Search, BarChart3, Bell, UserCircle, AlertCircle, CheckCircle
+  Search, BarChart3, Bell, UserCircle, AlertCircle, CheckCircle,
+  Upload, X, FileBox
 } from 'lucide-react';
 
 type Audit = {
@@ -15,13 +16,22 @@ type Audit = {
   details: string | null;
 };
 
+type SelectedFile = {
+  file: File;
+  status: 'OK' | 'WARNING' | 'CRITICAL';
+  uploading: boolean;
+  done: boolean;
+  error: string | null;
+};
+
 export default function Dashboard() {
   const [showForm, setShowForm] = useState(false);
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [projectName, setProjectName] = useState('');
-  const [status, setStatus] = useState('OK');
-  const [details, setDetails] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function fetchAudits() {
     setLoading(true);
@@ -33,22 +43,65 @@ export default function Dashboard() {
     else setAudits(data || []);
     setLoading(false);
   }
-
   useEffect(() => { fetchAudits(); }, []);
 
-  async function handleSave() {
-    if (!projectName) return alert('Veuillez saisir un nom de maquette');
-    const { error } = await supabase.from('audits').insert({
-      project_name: projectName,
-      status: status,
-      details: details || null,
-    });
-    if (error) { alert('Erreur : ' + error.message); }
-    else {
-      setShowForm(false);
-      setProjectName(''); setStatus('OK'); setDetails('');
-      fetchAudits();
+  function addFiles(files: FileList | File[]) {
+    const ifc = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.ifc'));
+    if (ifc.length === 0) return alert('Seuls les fichiers .ifc sont acceptés');
+    setSelectedFiles(prev => [
+      ...prev,
+      ...ifc.map(f => ({ file: f, status: 'OK' as const, uploading: false, done: false, error: null }))
+    ]);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(false);
+    addFiles(e.dataTransfer.files);
+  }
+
+  function removeFile(index: number) {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function updateFileStatus(index: number, status: 'OK' | 'WARNING' | 'CRITICAL') {
+    setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, status } : f));
+  }
+
+  async function handleUploadAll() {
+    if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
+    setUploading(true);
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const sf = selectedFiles[i];
+      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true } : f));
+
+      const path = `${Date.now()}_${sf.file.name}`;
+      const { error: storageError } = await supabase.storage
+        .from('ifc-files')
+        .upload(path, sf.file);
+
+      if (storageError) {
+        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: false, error: storageError.message } : f));
+        continue;
+      }
+
+      const { error: dbError } = await supabase.from('audits').insert({
+        project_name: sf.file.name,
+        status: sf.status,
+        details: `Fichier uploadé : ${path}`,
+      });
+
+      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? {
+        ...f, uploading: false,
+        done: !dbError,
+        error: dbError ? dbError.message : null
+      } : f));
     }
+
+    setUploading(false);
+    await fetchAudits();
+    setTimeout(() => { setShowForm(false); setSelectedFiles([]); }, 1500);
   }
 
   const getStyle = (s: string) => {
@@ -104,12 +157,11 @@ export default function Dashboard() {
             <div>
               <h2 className="text-3xl font-bold text-slate-900">Statut des Maquettes</h2>
               <p className="text-slate-500">Indicateurs de performance globale du projet</p>
-            </div>
-            <button 
+            </div>            <button 
               onClick={() => setShowForm(true)}
-              className="bg-[#f95700] hover:bg-orange-700 text-white px-6 py-2.5 rounded-lg font-bold text-sm flex items-center shadow-sm transition-all"
+              className="bg-[#f95700] hover:bg-orange-700 text-white px-6 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition-all"
             >
-              + Charger une nouvelle maquette
+              <Upload className="h-4 w-4" /> + Charger une nouvelle maquette
             </button>
           </div>          {/* STATS CARDS */}
           <div className="grid grid-cols-3 gap-6 mb-10">
@@ -154,38 +206,89 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-      </main>
-
-      {/* POPUP FORMULAIRE (S'affiche quand on clique sur le bouton orange) */}
+      </main>      {/* MODALE UPLOAD */}
       {showForm && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
-            <h3 className="text-xl font-bold mb-4 italic text-slate-800 underline decoration-orange-500 decoration-4">Nouvel Audit de Maquette</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nom de la Maquette</label>
-                <input type="text" value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="Ex: ARCHI_V2.ifc" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none" />
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-slate-800 underline decoration-orange-500 decoration-4">
+                Charger des Maquettes IFC
+              </h3>
+              <button onClick={() => { setShowForm(false); setSelectedFiles([]); }} className="text-slate-400 hover:text-slate-700">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* ZONE DRAG & DROP */}
+            <div
+              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all mb-4 ${
+                isDragging ? 'border-orange-500 bg-orange-50' : 'border-slate-200 hover:border-orange-400 hover:bg-slate-50'
+              }`}
+            >
+              <Upload className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-semibold text-slate-600">Glissez vos fichiers <span className="text-orange-500">.ifc</span> ici</p>
+              <p className="text-xs text-slate-400 mt-1">ou cliquez pour parcourir — sélection multiple autorisée</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".ifc"
+                multiple
+                className="hidden"
+                onChange={e => e.target.files && addFiles(e.target.files)}
+              />
+            </div>
+
+            {/* LISTE DES FICHIERS */}
+            {selectedFiles.length > 0 && (
+              <div className="space-y-2 max-h-48 overflow-y-auto mb-4">
+                {selectedFiles.map((sf, i) => (
+                  <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">
+                    <FileBox className="h-4 w-4 text-blue-500 shrink-0" />
+                    <span className="text-xs font-medium text-slate-700 flex-1 truncate">{sf.file.name}</span>
+                    <span className="text-xs text-slate-400">{(sf.file.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <select
+                      value={sf.status}
+                      onChange={e => updateFileStatus(i, e.target.value as 'OK' | 'WARNING' | 'CRITICAL')}
+                      className="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white"
+                      disabled={sf.uploading || sf.done}
+                    >
+                      <option value="OK">✅ OK</option>
+                      <option value="WARNING">⚠️ WARNING</option>
+                      <option value="CRITICAL">🔴 CRITICAL</option>
+                    </select>
+                    {sf.done && <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />}
+                    {sf.error && <span className="text-xs text-red-500 shrink-0" title={sf.error}>Erreur</span>}
+                    {sf.uploading && <span className="text-xs text-orange-500 animate-pulse shrink-0">Upload...</span>}
+                    {!sf.uploading && !sf.done && (
+                      <button onClick={() => removeFile(i)} className="text-slate-300 hover:text-red-400">
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Score (%)</label>
-                  <input type="number" placeholder="0-100" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
-                </div>                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Statut</label>
-                  <select value={status} onChange={e => setStatus(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm">
-                    <option value="OK">✅ OK — Réussi</option>
-                    <option value="WARNING">⚠️ WARNING — Avertissement</option>
-                    <option value="CRITICAL">🔴 CRITICAL — Critique</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Détails (optionnel)</label>                <textarea value={details} onChange={e => setDetails(e.target.value)} placeholder="Notes ou observations..." rows={2} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none resize-none" />
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button onClick={() => setShowForm(false)} className="flex-1 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">Annuler</button>
-                <button onClick={handleSave} className="flex-1 py-2.5 bg-[#f95700] text-white text-sm font-bold rounded-lg hover:bg-orange-700 shadow-lg transition-colors">Enregistrer</button>
-              </div>
+            )}
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => { setShowForm(false); setSelectedFiles([]); }}
+                className="flex-1 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+                disabled={uploading}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleUploadAll}
+                disabled={uploading || selectedFiles.length === 0}
+                className="flex-1 py-2.5 bg-[#f95700] text-white text-sm font-bold rounded-lg hover:bg-orange-700 shadow-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                {uploading ? 'Upload en cours...' : `Uploader${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
+              </button>
             </div>
           </div>
         </div>
