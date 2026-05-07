@@ -43,7 +43,19 @@ export default function Dashboard() {
     else setAudits(data || []);
     setLoading(false);
   }
-  useEffect(() => { fetchAudits(); }, []);
+  useEffect(() => {
+    fetchAudits();
+
+    // Supabase Realtime : mise à jour automatique du tableau de bord
+    const channel = supabase
+      .channel('audits-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audits' }, () => {
+        fetchAudits();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   function addFiles(files: FileList | File[]) {
     const ifc = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.ifc'));
@@ -109,6 +121,11 @@ export default function Dashboard() {
     if (s === 'WARNING') return { color: 'text-orange-500', bg: 'bg-orange-50', label: 'AVERTISSEMENT', icon: <AlertCircle className="text-orange-500" /> };
     return { color: 'text-red-500', bg: 'bg-red-50', label: 'CRITIQUE', icon: <AlertCircle className="text-red-500" /> };
   };
+  async function handleDelete(id: number) {
+    if (!confirm('Supprimer cette maquette ?')) return;
+    await supabase.from('audits').delete().eq('id', id);
+    fetchAudits();
+  }
 
   const nbCritiques = audits.filter(a => a.status === 'CRITICAL').length;
   const nbOk = audits.filter(a => a.status === 'OK').length;
@@ -189,11 +206,19 @@ export default function Dashboard() {
             <div className="grid grid-cols-4 gap-6">
               {audits.map((a) => {
                 const style = getStyle(a.status);
-                return (
-                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                return (                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
                     <div className="flex justify-between items-start mb-4">
                       <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
+                        <button
+                          onClick={() => handleDelete(a.id)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-500"
+                          title="Supprimer"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                     <h4 className="font-bold text-slate-800">{a.project_name}</h4>
                     <p className="text-[10px] text-slate-400 mb-2 italic">
