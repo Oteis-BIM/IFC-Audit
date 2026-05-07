@@ -210,10 +210,9 @@ export default function Dashboard() {
                     <div className="flex justify-between items-start mb-4">
                       <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
-                        <button
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>                        <button
                           onClick={() => handleDelete(a.id)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-500"
+                          className="text-slate-300 hover:text-red-500 transition-colors"
                           title="Supprimer"
                         >
                           <X className="h-4 w-4" />
