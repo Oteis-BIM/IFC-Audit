@@ -212,7 +212,7 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2">
                         <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>                        <button
                           onClick={() => handleDelete(a.id)}
-                          className="text-slate-300 hover:text-red-500 transition-colors"
+                          className="text-red-400 hover:text-red-600 transition-colors"
                           title="Supprimer"
                         >
                           <X className="h-4 w-4" />
