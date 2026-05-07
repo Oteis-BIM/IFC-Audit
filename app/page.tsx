@@ -120,11 +120,15 @@ export default function Dashboard() {
     if (s === 'OK') return { color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'RÉUSSI', icon: <CheckCircle className="text-emerald-500" /> };
     if (s === 'WARNING') return { color: 'text-orange-500', bg: 'bg-orange-50', label: 'AVERTISSEMENT', icon: <AlertCircle className="text-orange-500" /> };
     return { color: 'text-red-500', bg: 'bg-red-50', label: 'CRITIQUE', icon: <AlertCircle className="text-red-500" /> };
-  };
-  async function handleDelete(id: number) {
+  };  async function handleDelete(id: number) {
     if (!confirm('Supprimer cette maquette ?')) return;
-    await supabase.from('audits').delete().eq('id', id);
-    fetchAudits();
+    const { error } = await supabase.from('audits').delete().eq('id', id);
+    if (error) {
+      alert(`Erreur de suppression : ${error.message}`);
+      console.error(error);
+    } else {
+      fetchAudits();
+    }
   }
 
   const nbCritiques = audits.filter(a => a.status === 'CRITICAL').length;
