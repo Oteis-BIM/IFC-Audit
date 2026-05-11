@@ -49,7 +49,15 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
   }  useEffect(() => {
     fetchAudits();
     // Vérifier si déjà connecté à Box
-    fetch('/api/box/token').then(r => { if (r.ok) setBoxReady(true); });
+    fetch('/api/box/token').then(r => {
+      if (r.ok) setBoxReady(true);
+    });
+    // Au retour depuis Box OAuth, rouvrir la modale automatiquement
+    if (localStorage.getItem('box_auth_return') === '1') {
+      localStorage.removeItem('box_auth_return');
+      setBoxReady(true);
+      setShowForm(true);
+    }
 
     // Supabase Realtime: mise à jour automatique du tableau de bord
     const channel = supabase
@@ -246,27 +254,10 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       }, 2000);
     });
   }
-
-  // Appelé directement par le bouton "Connecter à Box" (clic synchrone → popup non bloquée)
+  // Connexion Box : redirige toute la page vers Box, revient automatiquement
   function handleConnectBox() {
-    const popup = window.open('/api/box/auth?popup=1', 'box_auth', 'width=600,height=700,left=300,top=100');
-    if (!popup) return alert('Popup bloquée. Autorisez les popups pour ifc-audit.vercel.app dans votre navigateur.');
-    let elapsed = 0;
-    const interval = setInterval(async () => {
-      elapsed += 2000;
-      try {
-        const res = await fetch('/api/box/token');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.accessToken) {
-            clearInterval(interval);
-            setBoxReady(true);
-            popup.close();
-          }
-        }
-      } catch { /* ignore */ }
-      if (elapsed >= 5 * 60 * 1000) { clearInterval(interval); popup.close(); }
-    }, 2000);
+    localStorage.setItem('box_auth_return', '1');
+    window.location.href = '/api/box/auth';
   }
   async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
