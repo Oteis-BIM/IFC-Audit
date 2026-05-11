@@ -44,18 +44,19 @@ export default function IfcViewer({ fileUrl, onClose }: IfcViewerProps) {
     grids.create(world);
 
     // Loader IFC
-    const ifcLoader = components.get(OBC.IfcLoader);
-
-    async function loadIfc() {
+    const ifcLoader = components.get(OBC.IfcLoader);    async function loadIfc() {
       await ifcLoader.setup();
       const response = await fetch(fileUrl);
       const buffer = await response.arrayBuffer();
       const data = new Uint8Array(buffer);
-      const model = await ifcLoader.load(data);
-      world.scene.three.add(model);
+      const model = await ifcLoader.load(data, true, fileUrl.split('/').pop() || 'model.ifc');
+
+      // FragmentsModel contient un Object3D dans .object
+      const modelObject = (model as unknown as { object: THREE.Object3D }).object ?? model;
+      world.scene.three.add(modelObject);
 
       // Centrer la caméra sur le modèle
-      const bbox = new THREE.Box3().setFromObject(model);
+      const bbox = new THREE.Box3().setFromObject(modelObject);
       const center = bbox.getCenter(new THREE.Vector3());
       const size = bbox.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z);
