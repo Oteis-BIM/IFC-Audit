@@ -6,11 +6,9 @@ export async function GET(req: NextRequest) {
   const redirectUri = process.env.BOX_REDIRECT_URI || 'https://ifc-audit.vercel.app/api/box/callback';
   const popup = req.nextUrl.searchParams.get('popup') === '1';
 
-  const url = new URL('https://account.box.com/api/oauth2/authorize');
-  url.searchParams.set('response_type', 'code');
+  const url = new URL('https://account.box.com/api/oauth2/authorize');  url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
-  // Si popup, on ajoute ?popup=1 au redirect_uri pour que le callback le sache  url.searchParams.set('redirect_uri', redirectUri);
-  // On passe popup dans state pour ne pas modifier le redirect_uri enregistré sur Box
+  url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('state', popup ? 'popup' : 'ifc-audit');
 
   return NextResponse.redirect(url.toString());
