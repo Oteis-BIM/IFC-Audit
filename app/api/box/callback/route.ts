@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(req: NextRequest) {  const code = req.nextUrl.searchParams.get('code');
   const state = req.nextUrl.searchParams.get('state');
   if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
-
   const clientId = process.env.BOX_CLIENT_ID!;
   const clientSecret = process.env.BOX_CLIENT_SECRET!;
-  const redirectUri = process.env.BOX_REDIRECT_URI!;
+  const redirectUri = process.env.BOX_REDIRECT_URI || 'https://ifc-audit.vercel.app/api/box/callback';
 
   // Échange du code contre les tokens
   const res = await fetch('https://api.box.com/oauth2/token', {
