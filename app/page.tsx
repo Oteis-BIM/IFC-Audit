@@ -30,10 +30,11 @@ type SelectedFile = {
 export default function Dashboard() {  const [showForm, setShowForm] = useState(false);
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
-  const [isDragging, setIsDragging] = useState(false);  const [uploading, setUploading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [boxReady, setBoxReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function fetchAudits() {
@@ -45,11 +46,12 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     if (error) console.error(error);
     else setAudits(data || []);
     setLoading(false);
-  }
-  useEffect(() => {
+  }  useEffect(() => {
     fetchAudits();
+    // Vérifier si déjà connecté à Box
+    fetch('/api/box/token').then(r => { if (r.ok) setBoxReady(true); });
 
-    // Supabase Realtime : mise à jour automatique du tableau de bord
+    // Supabase Realtime: mise à jour automatique du tableau de bord
     const channel = supabase
       .channel('audits-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audits' }, () => {
@@ -214,8 +216,7 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     if (!id) throw new Error(`ID introuvable après commit : ${JSON.stringify(commitData)}`);
     onProgress?.(100);
     return id;
-  }
-  // Ouvre Box OAuth dans une popup et attend que le token soit disponible (polling)
+  }  // Ouvre Box OAuth dans une popup et attend que le token soit disponible (polling)
   function openBoxAuthPopup(): Promise<void> {
     return new Promise((resolve, reject) => {
       const popup = window.open('/api/box/auth?popup=1', 'box_auth', 'width=600,height=700,left=300,top=100');
@@ -224,20 +225,19 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       let elapsed = 0;
       const interval = setInterval(async () => {
         elapsed += 2000;
-        // Vérifier si le token est maintenant disponible
         try {
           const res = await fetch('/api/box/token');
           if (res.ok) {
             const data = await res.json();
             if (data.accessToken) {
               clearInterval(interval);
+              setBoxReady(true);
               popup.close();
               resolve();
               return;
             }
           }
         } catch { /* ignore */ }
-        // Timeout 5 minutes
         if (elapsed >= 5 * 60 * 1000) {
           clearInterval(interval);
           popup.close();
@@ -247,32 +247,42 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     });
   }
 
+  // Appelé directement par le bouton "Connecter à Box" (clic synchrone → popup non bloquée)
+  function handleConnectBox() {
+    const popup = window.open('/api/box/auth?popup=1', 'box_auth', 'width=600,height=700,left=300,top=100');
+    if (!popup) return alert('Popup bloquée. Autorisez les popups pour ifc-audit.vercel.app dans votre navigateur.');
+    let elapsed = 0;
+    const interval = setInterval(async () => {
+      elapsed += 2000;
+      try {
+        const res = await fetch('/api/box/token');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.accessToken) {
+            clearInterval(interval);
+            setBoxReady(true);
+            popup.close();
+          }
+        }
+      } catch { /* ignore */ }
+      if (elapsed >= 5 * 60 * 1000) { clearInterval(interval); popup.close(); }
+    }, 2000);
+  }
   async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
     if (uploading) return;
-    setUploading(true);
 
-    // 1. Récupérer le token Box depuis le serveur
-    let tokenRes = await fetch('/api/box/token');
-    if (!tokenRes.ok) {
-      // Pas de token → ouvrir Box OAuth dans une popup, puis réessayer
-      try {
-        await openBoxAuthPopup();
-      } catch {
-        setUploading(false);
-        return alert('Authentification Box annulée ou expirée.');
-      }
-      tokenRes = await fetch('/api/box/token');
-      if (!tokenRes.ok) {
-        setUploading(false);
-        return alert('Impossible de récupérer le token Box après authentification.');
-      }
+    // Vérifier le token Box avant de démarrer
+    const tokenCheck = await fetch('/api/box/token');
+    if (!tokenCheck.ok) {
+      return alert('Veuillez d\'abord vous connecter à Box en cliquant sur le bouton "Connecter à Box".');
     }
-    const { accessToken, folderId } = await tokenRes.json();
+    const { accessToken, folderId } = await tokenCheck.json();
     if (!accessToken) {
-      setUploading(false);
-      return alert('Token Box manquant. Réessayez.');
+      return alert('Token Box manquant. Cliquez sur "Connecter à Box".');
     }
+
+    setUploading(true);
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const sf = selectedFiles[i];
@@ -466,8 +476,28 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
               </h3>
               <button onClick={() => { setShowForm(false); setSelectedFiles([]); }} className="text-slate-400 hover:text-slate-700">
                 <X className="h-5 w-5" />
-              </button>
-            </div>
+              </button>            </div>
+
+            {/* STATUT CONNEXION BOX */}
+            {boxReady ? (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mb-4">
+                <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+                <span className="text-xs text-emerald-700 font-medium">Connecté à Box</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-orange-500 shrink-0" />
+                  <span className="text-xs text-orange-700 font-medium">Connexion Box requise avant l&apos;upload</span>
+                </div>
+                <button
+                  onClick={handleConnectBox}
+                  className="text-xs font-bold bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Connecter à Box
+                </button>
+              </div>
+            )}
 
             {/* ZONE DRAG & DROP */}
             <div
