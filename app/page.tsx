@@ -215,22 +215,35 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     onProgress?.(100);
     return id;
   }
-
-  // Ouvre Box OAuth dans une popup et attend la connexion
+  // Ouvre Box OAuth dans une popup et attend que le token soit disponible (polling)
   function openBoxAuthPopup(): Promise<void> {
     return new Promise((resolve, reject) => {
       const popup = window.open('/api/box/auth?popup=1', 'box_auth', 'width=600,height=700,left=300,top=100');
-      if (!popup) { reject(new Error('Popup bloquée par le navigateur.')); return; }
-      const onMessage = (e: MessageEvent) => {
-        if (e.data === 'box_auth_done') {
-          window.removeEventListener('message', onMessage);
+      if (!popup) { reject(new Error('Popup bloquée. Autorisez les popups pour ce site.')); return; }
+
+      let elapsed = 0;
+      const interval = setInterval(async () => {
+        elapsed += 2000;
+        // Vérifier si le token est maintenant disponible
+        try {
+          const res = await fetch('/api/box/token');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.accessToken) {
+              clearInterval(interval);
+              popup.close();
+              resolve();
+              return;
+            }
+          }
+        } catch { /* ignore */ }
+        // Timeout 5 minutes
+        if (elapsed >= 5 * 60 * 1000) {
+          clearInterval(interval);
           popup.close();
-          resolve();
+          reject(new Error('Timeout connexion Box (5 min).'));
         }
-      };
-      window.addEventListener('message', onMessage);
-      // Timeout 5 minutes
-      setTimeout(() => { window.removeEventListener('message', onMessage); reject(new Error('Timeout connexion Box.')); }, 5 * 60 * 1000);
+      }, 2000);
     });
   }
 

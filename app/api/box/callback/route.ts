@@ -25,9 +25,9 @@ export async function GET(req: NextRequest) {  const code = req.nextUrl.searchPa
   if (!tokens.access_token) {
     return NextResponse.json({ error: 'Token exchange failed', details: tokens }, { status: 400 });
   }  // Si ouvert en popup (state=popup), on ferme la fenêtre via une page HTML
-  const isPopup = state === 'popup';
-  if (isPopup) {
-    const html = `<!DOCTYPE html><html><body><script>window.opener?.postMessage('box_auth_done','*');window.close();</script><p>Authentification réussie, fermeture...</p></body></html>`;
+  const isPopup = state === 'popup';  if (isPopup) {
+    // La popup pose les cookies puis se ferme — la page parente fait du polling sur /api/box/token
+    const html = `<!DOCTYPE html><html><head><title>Box Auth</title></head><body><p>✅ Authentification réussie, fermeture automatique...</p><script>window.close();</script></body></html>`;
     const popupResponse = new NextResponse(html, { headers: { 'Content-Type': 'text/html' } });
     popupResponse.cookies.set('box_access_token', tokens.access_token, {
       httpOnly: true,
