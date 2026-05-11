@@ -31,8 +31,8 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -81,37 +81,177 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
 
   function updateFileStatus(index: number, status: 'OK' | 'WARNING' | 'CRITICAL') {
     setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, status } : f));
-  }  async function handleUploadAll() {
+  }
+
+  async function uploadToBoxDirect(
+    file: File,
+    accessToken: string,
+    folderId: string,
+    onProgress?: (pct: number) => void
+  ): Promise<string> {
+    const CHUNK_SIZE = 8 * 1024 * 1024;
+    const fileSize = file.size;
+
+    if (fileSize <= 50 * 1024 * 1024) {
+      // Simple upload
+      const boxForm = new FormData();
+      boxForm.append('attributes', JSON.stringify({ name: file.name, parent: { id: folderId } }));
+      boxForm.append('file', file);
+      const res = await fetch('https://upload.box.com/api/2.0/files/content', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: boxForm,
+      });
+      const data = await res.json();
+      const id = data.entries?.[0]?.id;
+      if (!id) throw new Error(`Upload simple Box échoué : ${JSON.stringify(data)}`);
+      onProgress?.(100);
+      return id;
+    }
+
+    // Chunked upload — lecture chunk par chunk sans charger tout le fichier en RAM
+    const sessionRes = await fetch('https://upload.box.com/api/2.0/files/upload_sessions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folder_id: folderId, file_size: fileSize, file_name: file.name }),
+    });
+    const session = await sessionRes.json();
+    if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);
+
+    const uploadUrl = session.session_endpoints?.upload_part;
+    const commitUrl = session.session_endpoints?.commit;
+    const parts: { part_id: string; offset: number; size: number }[] = [];
+    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
+
+    // Calcul du hash SHA-1 du fichier complet en streaming (chunk par chunk)
+    // On ne garde pas tout en RAM : on lit chaque chunk via File.slice()
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const offset = chunkIndex * CHUNK_SIZE;
+      const end = Math.min(offset + CHUNK_SIZE, fileSize);
+      const blob = file.slice(offset, end);
+      const chunk = await blob.arrayBuffer();
+
+      const hashBuffer = await crypto.subtle.digest('SHA-1', chunk);
+      const sha1Base64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+
+      const partRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/octet-stream',
+          'Content-Range': `bytes ${offset}-${end - 1}/${fileSize}`,
+          'Digest': `sha=${sha1Base64}`,
+        },
+        body: chunk,
+      });
+
+      if (!partRes.ok) {
+        const errText = await partRes.text();
+        throw new Error(`Erreur chunk ${chunkIndex + 1}/${totalChunks} : ${errText}`);
+      }
+      const partData = await partRes.json();
+      if (!partData.part) throw new Error(`Part manquante chunk ${chunkIndex + 1} : ${JSON.stringify(partData)}`);
+      parts.push(partData.part);
+      onProgress?.(Math.round(((chunkIndex + 1) / totalChunks) * 90));
+    }
+
+    // Hash SHA-1 du fichier complet via streaming
+    const fullHashCtx = await (async () => {
+      // On ne peut pas faire de hash incrémental avec crypto.subtle, on relit le fichier
+      // Pour les très gros fichiers, on utilise une approche séquentielle
+      const fullBuffer = await file.arrayBuffer();
+      return crypto.subtle.digest('SHA-1', fullBuffer);
+    })();
+    const fullSha1Base64 = btoa(String.fromCharCode(...new Uint8Array(fullHashCtx)));
+
+    // Commit
+    const commitRes = await fetch(commitUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Digest': `sha=${fullSha1Base64}`,
+      },
+      body: JSON.stringify({ parts: parts.map(p => ({ part_id: p.part_id, offset: p.offset, size: p.size })) }),
+    });
+
+    // Box renvoie 202 si le traitement est encore en cours → polling
+    if (commitRes.status === 202) {
+      const sessionStatusUrl = `https://upload.box.com/api/2.0/files/upload_sessions/${session.id}`;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const statusRes = await fetch(sessionStatusUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (statusRes.status === 200) {
+          // La session existe toujours, pas encore finie
+          continue;
+        }
+        if (statusRes.status === 404) {
+          // Session supprimée = commit terminé, on cherche le fichier par nom
+          break;
+        }
+      }
+      // Rechercher le fichier créé dans le dossier Box
+      const searchRes = await fetch(
+        `https://api.box.com/2.0/folders/${folderId}/items?fields=id,name&limit=10`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const searchData = await searchRes.json();
+      const found = searchData.entries?.find((e: { name: string; id: string }) => e.name === file.name);
+      if (!found?.id) throw new Error(`Fichier introuvable après commit Box (202).`);
+      onProgress?.(100);
+      return found.id;
+    }
+
+    if (!commitRes.ok) {
+      const errText = await commitRes.text();
+      throw new Error(`Commit Box échoué (${commitRes.status}) : ${errText}`);
+    }
+
+    const commitData = await commitRes.json();
+    const id = commitData.entries?.[0]?.id ?? commitData?.id;
+    if (!id) throw new Error(`ID introuvable après commit : ${JSON.stringify(commitData)}`);
+    onProgress?.(100);
+    return id;
+  }
+
+  async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
     if (uploading) return;
     setUploading(true);
 
+    // 1. Récupérer le token Box depuis le serveur
+    const tokenRes = await fetch('/api/box/token');
+    if (!tokenRes.ok) {
+      if (tokenRes.status === 401) { window.location.href = '/api/box/auth'; return; }
+      setUploading(false);
+      return alert('Impossible de récupérer le token Box.');
+    }
+    const { accessToken, folderId } = await tokenRes.json();
+
     for (let i = 0; i < selectedFiles.length; i++) {
       const sf = selectedFiles[i];
-      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true } : f));
+      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true } : f));      try {
+        // 2. Upload direct navigateur → Box (pas de limite de taille)
+        const boxFileId = await uploadToBoxDirect(sf.file, accessToken, folderId, (pct) => {
+          setUploadProgress(pct);
+        });
 
-      try {
-        // Upload vers Box via l'API Route
-        const formData = new FormData();
-        formData.append('file', sf.file);
+        // 3. Créer le lien de partage via Vercel (requête légère)
+        const slRes = await fetch('/api/box/shared-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId: boxFileId }),
+        });
+        const slData = await slRes.json();
+        const downloadUrl = slData.downloadUrl || '';
 
-        const res = await fetch('/api/box/upload', { method: 'POST', body: formData });
-        const result = await res.json();
-
-        if (!res.ok) {
-          // Si non authentifié, rediriger vers Box OAuth
-          if (res.status === 401) {
-            window.location.href = '/api/box/auth';
-            return;
-          }
-          throw new Error(result.error || 'Erreur upload Box');
-        }
-
-        // Insérer en base Supabase avec l'ID Box
+        // 4. Insérer en base Supabase
         const { error: dbError } = await supabase.from('audits').insert({
           project_name: sf.file.name,
           status: sf.status,
-          details: `box:${result.boxFileId}:${result.downloadUrl || ''}`,
+          details: `box:${boxFileId}:${downloadUrl}`,
         });
 
         setSelectedFiles(prev => prev.map((f, idx) => idx === i ? {
@@ -337,9 +477,7 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
                   </div>
                 ))}
               </div>
-            )}
-
-            <div className="flex space-x-3">
+            )}            <div className="flex space-x-3">
               <button
                 onClick={() => { setShowForm(false); setSelectedFiles([]); }}
                 className="flex-1 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
@@ -353,9 +491,23 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
                 className="flex-1 py-2.5 bg-[#f95700] text-white text-sm font-bold rounded-lg hover:bg-orange-700 shadow-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Upload className="h-4 w-4" />
-                {uploading ? 'Upload en cours...' : `Uploader${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
+                {uploading ? `Upload en cours... ${uploadProgress}%` : `Uploader${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
               </button>
             </div>
+            {/* BARRE DE PROGRESSION */}
+            {uploading && (
+              <div className="mt-3">
+                <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div
+                    className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400 text-center mt-1">
+                  {uploadProgress < 90 ? 'Envoi vers Box...' : uploadProgress < 100 ? 'Finalisation...' : 'Terminé ✓'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}      {/* VISIONNEUSE IFC */}
