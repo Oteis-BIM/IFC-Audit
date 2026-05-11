@@ -5,8 +5,11 @@ import { supabase } from '../lib/supabase';
 import { 
   LayoutDashboard, Box, CheckCircle2, 
   Search, BarChart3, Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox
+  Upload, X, FileBox, Eye
 } from 'lucide-react';
+import NextDynamic from 'next/dynamic';
+
+const IfcViewer = NextDynamic(() => import('./components/IfcViewer'), { ssr: false });
 
 type Audit = {
   id: number;
@@ -24,13 +27,13 @@ type SelectedFile = {
   error: string | null;
 };
 
-export default function Dashboard() {
-  const [showForm, setShowForm] = useState(false);
+export default function Dashboard() {  const [showForm, setShowForm] = useState(false);
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function fetchAudits() {
@@ -78,37 +81,49 @@ export default function Dashboard() {
 
   function updateFileStatus(index: number, status: 'OK' | 'WARNING' | 'CRITICAL') {
     setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, status } : f));
-  }
-
-  async function handleUploadAll() {
+  }  async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
+    if (uploading) return;
     setUploading(true);
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const sf = selectedFiles[i];
       setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true } : f));
 
-      const path = `${Date.now()}_${sf.file.name}`;
-      const { error: storageError } = await supabase.storage
-        .from('ifc-files')
-        .upload(path, sf.file);
+      try {
+        // Upload vers Box via l'API Route
+        const formData = new FormData();
+        formData.append('file', sf.file);
 
-      if (storageError) {
-        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: false, error: storageError.message } : f));
-        continue;
+        const res = await fetch('/api/box/upload', { method: 'POST', body: formData });
+        const result = await res.json();
+
+        if (!res.ok) {
+          // Si non authentifié, rediriger vers Box OAuth
+          if (res.status === 401) {
+            window.location.href = '/api/box/auth';
+            return;
+          }
+          throw new Error(result.error || 'Erreur upload Box');
+        }
+
+        // Insérer en base Supabase avec l'ID Box
+        const { error: dbError } = await supabase.from('audits').insert({
+          project_name: sf.file.name,
+          status: sf.status,
+          details: `box:${result.boxFileId}:${result.downloadUrl || ''}`,
+        });
+
+        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? {
+          ...f, uploading: false,
+          done: !dbError,
+          error: dbError ? dbError.message : null
+        } : f));
+
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Erreur inconnue';
+        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: false, error: message } : f));
       }
-
-      const { error: dbError } = await supabase.from('audits').insert({
-        project_name: sf.file.name,
-        status: sf.status,
-        details: `Fichier uploadé : ${path}`,
-      });
-
-      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? {
-        ...f, uploading: false,
-        done: !dbError,
-        error: dbError ? dbError.message : null
-      } : f));
     }
 
     setUploading(false);
@@ -120,7 +135,23 @@ export default function Dashboard() {
     if (s === 'OK') return { color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'RÉUSSI', icon: <CheckCircle className="text-emerald-500" /> };
     if (s === 'WARNING') return { color: 'text-orange-500', bg: 'bg-orange-50', label: 'AVERTISSEMENT', icon: <AlertCircle className="text-orange-500" /> };
     return { color: 'text-red-500', bg: 'bg-red-50', label: 'CRITIQUE', icon: <AlertCircle className="text-red-500" /> };
-  };  async function handleDelete(id: number) {
+  };  async function handleView(details: string | null) {
+    if (!details) return alert('Aucun fichier associé à cette maquette.');
+    if (details.startsWith('box:')) {
+      // Format box:fileId:downloadUrl
+      const parts = details.split(':');
+      const downloadUrl = parts.slice(2).join(':');
+      if (downloadUrl) setViewerUrl(downloadUrl);
+      else alert('URL de téléchargement Box manquante.');
+    } else {
+      // Ancien format Supabase Storage
+      const path = details.replace('Fichier uploadé : ', '').trim();
+      const { data } = supabase.storage.from('ifc-files').getPublicUrl(path);
+      setViewerUrl(data.publicUrl);
+    }
+  }
+
+  async function handleDelete(id: number) {
     if (!confirm('Supprimer cette maquette ?')) return;
     const { error } = await supabase.from('audits').delete().eq('id', id);
     if (error) {
@@ -213,8 +244,15 @@ export default function Dashboard() {
                 return (                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
                     <div className="flex justify-between items-start mb-4">
                       <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>                        <button
+                      <div className="flex items-center gap-2">                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
+                        <button
+                          onClick={() => handleView(a.details)}
+                          className="text-blue-400 hover:text-blue-600 transition-colors"
+                          title="Visualiser"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
                           onClick={() => handleDelete(a.id)}
                           className="text-red-400 hover:text-red-600 transition-colors"
                           title="Supprimer"
@@ -320,6 +358,9 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+      )}      {/* VISIONNEUSE IFC */}
+      {viewerUrl && (
+        <IfcViewer fileUrl={viewerUrl} onClose={() => setViewerUrl(null)} />
       )}
     </div>
   );
