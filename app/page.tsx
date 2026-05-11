@@ -219,16 +219,20 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
   async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
     if (uploading) return;
-    setUploading(true);
-
-    // 1. Récupérer le token Box depuis le serveur
+    setUploading(true);    // 1. Récupérer le token Box depuis le serveur
     const tokenRes = await fetch('/api/box/token');
     if (!tokenRes.ok) {
-      if (tokenRes.status === 401) { window.location.href = '/api/box/auth'; return; }
       setUploading(false);
-      return alert('Impossible de récupérer le token Box.');
+      // Quelle que soit l'erreur (401, 500…), on redirige vers l'auth Box
+      window.location.href = '/api/box/auth';
+      return;
     }
     const { accessToken, folderId } = await tokenRes.json();
+    if (!accessToken) {
+      setUploading(false);
+      window.location.href = '/api/box/auth';
+      return;
+    }
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const sf = selectedFiles[i];
