@@ -216,22 +216,49 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     return id;
   }
 
+  // Ouvre Box OAuth dans une popup et attend la connexion
+  function openBoxAuthPopup(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const popup = window.open('/api/box/auth?popup=1', 'box_auth', 'width=600,height=700,left=300,top=100');
+      if (!popup) { reject(new Error('Popup bloquée par le navigateur.')); return; }
+      const onMessage = (e: MessageEvent) => {
+        if (e.data === 'box_auth_done') {
+          window.removeEventListener('message', onMessage);
+          popup.close();
+          resolve();
+        }
+      };
+      window.addEventListener('message', onMessage);
+      // Timeout 5 minutes
+      setTimeout(() => { window.removeEventListener('message', onMessage); reject(new Error('Timeout connexion Box.')); }, 5 * 60 * 1000);
+    });
+  }
+
   async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
     if (uploading) return;
-    setUploading(true);    // 1. Récupérer le token Box depuis le serveur
-    const tokenRes = await fetch('/api/box/token');
+    setUploading(true);
+
+    // 1. Récupérer le token Box depuis le serveur
+    let tokenRes = await fetch('/api/box/token');
     if (!tokenRes.ok) {
-      setUploading(false);
-      // Quelle que soit l'erreur (401, 500…), on redirige vers l'auth Box
-      window.location.href = '/api/box/auth';
-      return;
+      // Pas de token → ouvrir Box OAuth dans une popup, puis réessayer
+      try {
+        await openBoxAuthPopup();
+      } catch {
+        setUploading(false);
+        return alert('Authentification Box annulée ou expirée.');
+      }
+      tokenRes = await fetch('/api/box/token');
+      if (!tokenRes.ok) {
+        setUploading(false);
+        return alert('Impossible de récupérer le token Box après authentification.');
+      }
     }
     const { accessToken, folderId } = await tokenRes.json();
     if (!accessToken) {
       setUploading(false);
-      window.location.href = '/api/box/auth';
-      return;
+      return alert('Token Box manquant. Réessayez.');
     }
 
     for (let i = 0; i < selectedFiles.length; i++) {
