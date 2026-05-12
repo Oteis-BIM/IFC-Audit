@@ -259,32 +259,38 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
   function handleConnectBox() {
     localStorage.setItem('box_auth_return', '1');
     window.location.href = '/api/box/auth';
-  }
-  async function handleUploadAll() {
+  }  async function handleUploadAll() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
     if (uploading) return;
 
-    // Vérifier le token Box avant de démarrer
+    // Vérification initiale de la connexion Box
     const tokenCheck = await fetch('/api/box/token');
     if (!tokenCheck.ok) {
       return alert('Veuillez d\'abord vous connecter à Box en cliquant sur le bouton "Connecter à Box".');
     }
-    const { accessToken, folderId } = await tokenCheck.json();
-    if (!accessToken) {
-      return alert('Token Box manquant. Cliquez sur "Connecter à Box".');
-    }
+    const { folderId } = await tokenCheck.json();
 
     setUploading(true);
+    let allDone = true;
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const sf = selectedFiles[i];
-      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true } : f));      try {
-        // 2. Upload direct navigateur → Box (pas de limite de taille)
-        const boxFileId = await uploadToBoxDirect(sf.file, accessToken, folderId, (pct) => {
+      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true, error: null } : f));
+      setUploadProgress(0);
+
+      try {
+        // Récupérer un token frais pour chaque fichier (évite les tokens expirés entre uploads)
+        const freshTokenRes = await fetch('/api/box/token');
+        if (!freshTokenRes.ok) throw new Error('Session Box expirée. Reconnectez-vous.');
+        const { accessToken: freshToken } = await freshTokenRes.json();
+        if (!freshToken) throw new Error('Token Box manquant.');
+
+        // Upload direct navigateur → Box
+        const boxFileId = await uploadToBoxDirect(sf.file, freshToken, folderId, (pct) => {
           setUploadProgress(pct);
         });
 
-        // 3. Créer le lien de partage via Vercel (requête légère)
+        // Créer le lien de partage
         const slRes = await fetch('/api/box/shared-link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -293,28 +299,32 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
         const slData = await slRes.json();
         const downloadUrl = slData.downloadUrl || '';
 
-        // 4. Insérer en base Supabase
+        // Insérer en base Supabase
         const { error: dbError } = await supabase.from('audits').insert({
           project_name: sf.file.name,
           status: sf.status,
           details: `box:${boxFileId}:${downloadUrl}`,
         });
 
-        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? {
-          ...f, uploading: false,
-          done: !dbError,
-          error: dbError ? dbError.message : null
-        } : f));
+        if (dbError) throw new Error(`Erreur Supabase : ${dbError.message}`);
+
+        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: false, done: true } : f));
 
       } catch (err: unknown) {
+        allDone = false;
         const message = err instanceof Error ? err.message : 'Erreur inconnue';
-        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: false, error: message } : f));
+        setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: false, done: false, error: message } : f));
       }
     }
 
     setUploading(false);
     await fetchAudits();
-    setTimeout(() => { setShowForm(false); setSelectedFiles([]); }, 1500);
+
+    // Fermer automatiquement seulement si tout s'est bien passé
+    if (allDone) {
+      setTimeout(() => { setShowForm(false); setSelectedFiles([]); }, 1500);
+    }
+    // Sinon la modale reste ouverte pour montrer les erreurs
   }
 
   const getStyle = (s: string) => {

@@ -46,6 +46,32 @@ export default function IfcViewer({ files, onClose, onRemoveFile }: IfcViewerPro
   const animIdRef = useRef<number>(0);
   const [models, setModels] = useState<ModelState[]>([]);
 
+  // Instance IfcAPI partagée + mutex pour sérialiser les chargements
+  // (web-ifc ne supporte pas plusieurs Init() simultanés)
+  const ifcApiRef = useRef<import("web-ifc").IfcAPI | null>(null);
+  const loadQueueRef = useRef<Array<() => Promise<void>>>([]);
+  const loadingRef = useRef(false);
+
+  async function runQueue() {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    while (loadQueueRef.current.length > 0) {
+      const task = loadQueueRef.current.shift()!;
+      await task();
+    }
+    loadingRef.current = false;
+  }
+
+  async function getIfcApi(): Promise<import("web-ifc").IfcAPI> {
+    if (ifcApiRef.current) return ifcApiRef.current;
+    const { IfcAPI } = await import("web-ifc");
+    const api = new IfcAPI();
+    api.SetWasmPath("/", true);
+    await api.Init();
+    ifcApiRef.current = api;
+    return api;
+  }
+
   // ─── Setup Three.js (une seule fois) ───────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
@@ -160,88 +186,90 @@ export default function IfcViewer({ files, onClose, onRemoveFile }: IfcViewerPro
     camera.lookAt(t);
   }, []);
 
-  // ─── Charger un modèle IFC ─────────────────────────────────────────────────
-  const loadModel = useCallback(async (entry: FileEntry, modelIndex: number) => {
+  // ─── Charger un modèle IFC (sérialisé via queue) ─────────────────────────
+  const loadModel = useCallback((entry: FileEntry, modelIndex: number) => {
     const { fileId, fileName } = entry;
     if (loadedIdsRef.current.has(fileId)) return;
     loadedIdsRef.current.add(fileId);
 
     setModels(prev => [...prev, { fileId, fileName, status: "loading", error: null, visible: true, meshCount: 0 }]);
 
-    try {
-      const res = await fetch(`/api/box/file?fileId=${fileId}`);
-      if (!res.ok) throw new Error(`Proxy ${res.status} : ${await res.text()}`);
-      const buffer = await res.arrayBuffer();
+    const task = async () => {
+      try {
+        const res = await fetch(`/api/box/file?fileId=${fileId}`);
+        if (!res.ok) throw new Error(`Proxy ${res.status} : ${await res.text()}`);
+        const buffer = await res.arrayBuffer();
 
-      const { IfcAPI } = await import("web-ifc");
-      const ifcApi = new IfcAPI();
-      ifcApi.SetWasmPath("/", true);
-      await ifcApi.Init();
+        // Instance WASM partagée — initialisée une seule fois
+        const ifcApi = await getIfcApi();
+        const modelID = ifcApi.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
 
-      const modelID = ifcApi.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
+        const group = new THREE.Group();
+        group.name = fileId;
+        const palette = PALETTE[modelIndex % PALETTE.length];
+        let meshCount = 0;
 
-      const group = new THREE.Group();
-      group.name = fileId;
-      const palette = PALETTE[modelIndex % PALETTE.length];
-      let meshCount = 0;
+        ifcApi.StreamAllMeshes(modelID, (mesh) => {
+          const geoms = mesh.geometries;
+          for (let i = 0; i < geoms.size(); i++) {
+            const placed = geoms.get(i);
+            const geomData = ifcApi.GetGeometry(modelID, placed.geometryExpressID);
+            const verts = ifcApi.GetVertexArray(geomData.GetVertexData(), geomData.GetVertexDataSize());
+            const idxs = ifcApi.GetIndexArray(geomData.GetIndexData(), geomData.GetIndexDataSize());
+            geomData.delete();
 
-      ifcApi.StreamAllMeshes(modelID, (mesh) => {
-        const geoms = mesh.geometries;
-        for (let i = 0; i < geoms.size(); i++) {
-          const placed = geoms.get(i);
-          const geomData = ifcApi.GetGeometry(modelID, placed.geometryExpressID);
-          const verts = ifcApi.GetVertexArray(geomData.GetVertexData(), geomData.GetVertexDataSize());
-          const idxs = ifcApi.GetIndexArray(geomData.GetIndexData(), geomData.GetIndexDataSize());
-          geomData.delete();
+            const n = verts.length / 6;
+            const pos = new Float32Array(n * 3);
+            const nor = new Float32Array(n * 3);
+            for (let j = 0; j < n; j++) {
+              pos[j*3]=verts[j*6]; pos[j*3+1]=verts[j*6+1]; pos[j*3+2]=verts[j*6+2];
+              nor[j*3]=verts[j*6+3]; nor[j*3+1]=verts[j*6+4]; nor[j*3+2]=verts[j*6+5];
+            }
 
-          const n = verts.length / 6;
-          const pos = new Float32Array(n * 3);
-          const nor = new Float32Array(n * 3);
-          for (let j = 0; j < n; j++) {
-            pos[j*3]=verts[j*6]; pos[j*3+1]=verts[j*6+1]; pos[j*3+2]=verts[j*6+2];
-            nor[j*3]=verts[j*6+3]; nor[j*3+1]=verts[j*6+4]; nor[j*3+2]=verts[j*6+5];
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+            geo.setIndex(new THREE.BufferAttribute(idxs, 1));
+
+            const col = placed.color;
+            const color = palette
+              ? new THREE.Color().setHSL(palette.h, palette.s, 0.55)
+              : new THREE.Color(col.x, col.y, col.z);
+
+            const mat = new THREE.MeshLambertMaterial({
+              color,
+              transparent: col.w < 1,
+              opacity: col.w,
+              side: THREE.DoubleSide,
+            });
+
+            const m = new THREE.Mesh(geo, mat);
+            m.applyMatrix4(new THREE.Matrix4().fromArray(Array.from(placed.flatTransformation)));
+            group.add(m);
+            meshCount++;
           }
+        });
 
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-          geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
-          geo.setIndex(new THREE.BufferAttribute(idxs, 1));
+        ifcApi.CloseModel(modelID);
+        if (group.children.length === 0) throw new Error("Aucune géométrie trouvée dans ce fichier.");
 
-          const col = placed.color;
-          const color = palette
-            ? new THREE.Color().setHSL(palette.h, palette.s, 0.55)
-            : new THREE.Color(col.x, col.y, col.z);
+        sceneRef.current!.add(group);
+        groupsRef.current.set(fileId, group);
+        setModels(prev => prev.map(m => m.fileId === fileId ? { ...m, status: "loaded", meshCount } : m));
+        setTimeout(recenter, 50);
 
-          const mat = new THREE.MeshLambertMaterial({
-            color,
-            transparent: col.w < 1,
-            opacity: col.w,
-            side: THREE.DoubleSide,
-          });
+      } catch (e: unknown) {
+        loadedIdsRef.current.delete(fileId);
+        setModels(prev => prev.map(m => m.fileId === fileId
+          ? { ...m, status: "error", error: e instanceof Error ? e.message : String(e) }
+          : m
+        ));
+      }
+    };
 
-          const m = new THREE.Mesh(geo, mat);
-          m.applyMatrix4(new THREE.Matrix4().fromArray(Array.from(placed.flatTransformation)));
-          group.add(m);
-          meshCount++;
-        }
-      });
-
-      ifcApi.CloseModel(modelID);
-      if (group.children.length === 0) throw new Error("Aucune geometrie trouvee dans ce fichier.");
-
-      sceneRef.current!.add(group);
-      groupsRef.current.set(fileId, group);
-      setModels(prev => prev.map(m => m.fileId === fileId ? { ...m, status: "loaded", meshCount } : m));
-      setTimeout(recenter, 50);
-
-    } catch (e: unknown) {
-      loadedIdsRef.current.delete(fileId);
-      setModels(prev => prev.map(m => m.fileId === fileId
-        ? { ...m, status: "error", error: e instanceof Error ? e.message : String(e) }
-        : m
-      ));
-    }
-  }, [recenter]);
+    loadQueueRef.current.push(task);
+    runQueue();
+  }, [recenter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Réagir aux changements de la liste de fichiers ───────────────────────
   useEffect(() => {
