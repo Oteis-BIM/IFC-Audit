@@ -26,14 +26,13 @@ type SelectedFile = {
   uploading: boolean;
   done: boolean;
   error: string | null;
+  progress: number; // progression 0-100 par fichier
 };
 
 export default function Dashboard() {  const [showForm, setShowForm] = useState(false);
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);  const [uploading, setUploading] = useState(false);
   const [viewerFiles, setViewerFiles] = useState<FileEntry[]>([]);
   const [boxReady, setBoxReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -73,10 +72,9 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
 
   function addFiles(files: FileList | File[]) {
     const ifc = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.ifc'));
-    if (ifc.length === 0) return alert('Seuls les fichiers .ifc sont acceptés');
-    setSelectedFiles(prev => [
+    if (ifc.length === 0) return alert('Seuls les fichiers .ifc sont acceptés');    setSelectedFiles(prev => [
       ...prev,
-      ...ifc.map(f => ({ file: f, status: 'OK' as const, uploading: false, done: false, error: null }))
+      ...ifc.map(f => ({ file: f, status: 'OK' as const, uploading: false, done: false, error: null, progress: 0 }))
     ]);
   }
 
@@ -127,20 +125,21 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       body: JSON.stringify({ folder_id: folderId, file_size: fileSize, file_name: file.name }),
     });
     const session = await sessionRes.json();
-    if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);
-
-    const uploadUrl = session.session_endpoints?.upload_part;
+    if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);    const uploadUrl = session.session_endpoints?.upload_part;
     const commitUrl = session.session_endpoints?.commit;
     const parts: { part_id: string; offset: number; size: number }[] = [];
     const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
 
-    // Calcul du hash SHA-1 du fichier complet en streaming (chunk par chunk)
-    // On ne garde pas tout en RAM : on lit chaque chunk via File.slice()
+    // On conserve les chunks en mémoire pour le hash SHA-1 final
+    // (évite un double arrayBuffer() complet sur les gros fichiers)
+    const allChunks: ArrayBuffer[] = [];
+
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
       const offset = chunkIndex * CHUNK_SIZE;
       const end = Math.min(offset + CHUNK_SIZE, fileSize);
       const blob = file.slice(offset, end);
       const chunk = await blob.arrayBuffer();
+      allChunks.push(chunk);
 
       const hashBuffer = await crypto.subtle.digest('SHA-1', chunk);
       const sha1Base64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
@@ -163,17 +162,22 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       const partData = await partRes.json();
       if (!partData.part) throw new Error(`Part manquante chunk ${chunkIndex + 1} : ${JSON.stringify(partData)}`);
       parts.push(partData.part);
-      onProgress?.(Math.round(((chunkIndex + 1) / totalChunks) * 90));
+      // Progression : les chunks représentent 85% du travail
+      onProgress?.(Math.round(((chunkIndex + 1) / totalChunks) * 85));
     }
 
-    // Hash SHA-1 du fichier complet via streaming
-    const fullHashCtx = await (async () => {
-      // On ne peut pas faire de hash incrémental avec crypto.subtle, on relit le fichier
-      // Pour les très gros fichiers, on utilise une approche séquentielle
-      const fullBuffer = await file.arrayBuffer();
-      return crypto.subtle.digest('SHA-1', fullBuffer);
-    })();
-    const fullSha1Base64 = btoa(String.fromCharCode(...new Uint8Array(fullHashCtx)));
+    // Hash SHA-1 du fichier complet : concaténation des chunks déjà en mémoire
+    // (évite de relire le fichier depuis le disque)
+    const totalBytes = allChunks.reduce((acc, c) => acc + c.byteLength, 0);
+    const merged = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of allChunks) {
+      merged.set(new Uint8Array(chunk), offset);
+      offset += chunk.byteLength;
+    }
+    onProgress?.(90);
+    const fullHashBuffer = await crypto.subtle.digest('SHA-1', merged);
+    const fullSha1Base64 = btoa(String.fromCharCode(...new Uint8Array(fullHashBuffer)));
 
     // Commit
     const commitRes = await fetch(commitUrl, {
@@ -268,15 +272,12 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     if (!tokenCheck.ok) {
       return alert('Veuillez d\'abord vous connecter à Box en cliquant sur le bouton "Connecter à Box".');
     }
-    const { folderId } = await tokenCheck.json();
-
-    setUploading(true);
+    const { folderId } = await tokenCheck.json();    setUploading(true);
     let allDone = true;
 
     for (let i = 0; i < selectedFiles.length; i++) {
       const sf = selectedFiles[i];
-      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true, error: null } : f));
-      setUploadProgress(0);
+      setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, uploading: true, error: null, progress: 0 } : f));
 
       try {
         // Récupérer un token frais pour chaque fichier (évite les tokens expirés entre uploads)
@@ -287,7 +288,7 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
 
         // Upload direct navigateur → Box
         const boxFileId = await uploadToBoxDirect(sf.file, freshToken, folderId, (pct) => {
-          setUploadProgress(pct);
+          setSelectedFiles(prev => prev.map((f, idx) => idx === i ? { ...f, progress: pct } : f));
         });
 
         // Créer le lien de partage
@@ -520,68 +521,69 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
                 className="hidden"
                 onChange={e => e.target.files && addFiles(e.target.files)}
               />
-            </div>
-
-            {/* LISTE DES FICHIERS */}
+            </div>            {/* LISTE DES FICHIERS */}
             {selectedFiles.length > 0 && (
-              <div className="space-y-2 max-h-48 overflow-y-auto mb-4">
+              <div className="space-y-2 max-h-56 overflow-y-auto mb-4">
                 {selectedFiles.map((sf, i) => (
-                  <div key={i} className="flex items-center gap-3 bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">
-                    <FileBox className="h-4 w-4 text-blue-500 shrink-0" />
-                    <span className="text-xs font-medium text-slate-700 flex-1 truncate">{sf.file.name}</span>
-                    <span className="text-xs text-slate-400">{(sf.file.size / 1024 / 1024).toFixed(1)} MB</span>
-                    <select
-                      value={sf.status}
-                      onChange={e => updateFileStatus(i, e.target.value as 'OK' | 'WARNING' | 'CRITICAL')}
-                      className="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white"
-                      disabled={sf.uploading || sf.done}
-                    >
-                      <option value="OK">✅ OK</option>
-                      <option value="WARNING">⚠️ WARNING</option>
-                      <option value="CRITICAL">🔴 CRITICAL</option>
-                    </select>
-                    {sf.done && <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />}
-                    {sf.error && <span className="text-xs text-red-500 shrink-0" title={sf.error}>Erreur</span>}
-                    {sf.uploading && <span className="text-xs text-orange-500 animate-pulse shrink-0">Upload...</span>}
-                    {!sf.uploading && !sf.done && (
-                      <button onClick={() => removeFile(i)} className="text-slate-300 hover:text-red-400">
-                        <X className="h-3 w-3" />
-                      </button>
+                  <div key={i} className="flex flex-col bg-slate-50 rounded-lg px-3 py-2 border border-slate-200 gap-1">
+                    <div className="flex items-center gap-3">
+                      <FileBox className="h-4 w-4 text-blue-500 shrink-0" />
+                      <span className="text-xs font-medium text-slate-700 flex-1 truncate">{sf.file.name}</span>
+                      <span className="text-xs text-slate-400">{(sf.file.size / 1024 / 1024).toFixed(1)} MB</span>
+                      <select
+                        value={sf.status}
+                        onChange={e => updateFileStatus(i, e.target.value as 'OK' | 'WARNING' | 'CRITICAL')}
+                        className="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white"
+                        disabled={sf.uploading || sf.done}
+                      >
+                        <option value="OK">✅ OK</option>
+                        <option value="WARNING">⚠️ WARNING</option>
+                        <option value="CRITICAL">🔴 CRITICAL</option>
+                      </select>
+                      {sf.done && <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />}
+                      {sf.error && <span className="text-xs text-red-500 shrink-0 max-w-[80px] truncate" title={sf.error}>⚠ Erreur</span>}
+                      {!sf.uploading && !sf.done && !sf.error && (
+                        <button onClick={() => removeFile(i)} className="text-slate-300 hover:text-red-400">
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    {/* Barre de progression individuelle */}
+                    {sf.uploading && (
+                      <div className="w-full">
+                        <div className="w-full bg-slate-200 rounded-full h-1.5">
+                          <div
+                            className="bg-orange-500 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${sf.progress}%` }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {sf.progress < 85 ? `Envoi vers Box... ${sf.progress}%` : sf.progress < 95 ? 'Calcul SHA-1...' : 'Finalisation...'}
+                        </p>
+                      </div>
+                    )}
+                    {sf.error && (
+                      <p className="text-[10px] text-red-400 font-mono break-all">{sf.error}</p>
                     )}
                   </div>
                 ))}
               </div>
-            )}            <div className="flex space-x-3">
+            )}<div className="flex space-x-3">
               <button
                 onClick={() => { setShowForm(false); setSelectedFiles([]); }}
                 className="flex-1 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
                 disabled={uploading}
               >
                 Annuler
-              </button>
-              <button
+              </button>              <button
                 onClick={handleUploadAll}
                 disabled={uploading || selectedFiles.length === 0}
                 className="flex-1 py-2.5 bg-[#f95700] text-white text-sm font-bold rounded-lg hover:bg-orange-700 shadow-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <Upload className="h-4 w-4" />
-                {uploading ? `Upload en cours... ${uploadProgress}%` : `Uploader${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
+                {uploading ? 'Upload en cours...' : `Uploader${selectedFiles.length > 0 ? ` (${selectedFiles.length})` : ''}`}
               </button>
             </div>
-            {/* BARRE DE PROGRESSION */}
-            {uploading && (
-              <div className="mt-3">
-                <div className="w-full bg-slate-100 rounded-full h-2">
-                  <div
-                    className="bg-orange-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
-                </div>
-                <p className="text-xs text-slate-400 text-center mt-1">
-                  {uploadProgress < 90 ? 'Envoi vers Box...' : uploadProgress < 100 ? 'Finalisation...' : 'Terminé ✓'}
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}      {/* VISIONNEUSE IFC */}
