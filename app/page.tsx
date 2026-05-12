@@ -116,40 +116,42 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       if (!id) throw new Error(`Upload simple Box échoué : ${JSON.stringify(data)}`);
       onProgress?.(100);
       return id;
-    }
-
-    // Chunked upload — lecture chunk par chunk sans charger tout le fichier en RAM
+    }    // Chunked upload — lecture chunk par chunk sans charger tout le fichier en RAM
     const sessionRes = await fetch('https://upload.box.com/api/2.0/files/upload_sessions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ folder_id: folderId, file_size: fileSize, file_name: file.name }),
     });
     const session = await sessionRes.json();
-    if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);    const uploadUrl = session.session_endpoints?.upload_part;
+    if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);
+    const uploadUrl = session.session_endpoints?.upload_part;
     const commitUrl = session.session_endpoints?.commit;
     const parts: { part_id: string; offset: number; size: number }[] = [];
     const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
 
-    // On conserve les chunks en mémoire pour le hash SHA-1 final
-    // (évite un double arrayBuffer() complet sur les gros fichiers)
-    const allChunks: ArrayBuffer[] = [];
+    // Hash SHA-1 incrémental du fichier complet (évite de tout garder en RAM)
+    const { sha1 } = await import('js-sha1');
+    const fullHasher = sha1.create();
 
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      const offset = chunkIndex * CHUNK_SIZE;
-      const end = Math.min(offset + CHUNK_SIZE, fileSize);
-      const blob = file.slice(offset, end);
+      const chunkOffset = chunkIndex * CHUNK_SIZE;
+      const end = Math.min(chunkOffset + CHUNK_SIZE, fileSize);
+      const blob = file.slice(chunkOffset, end);
       const chunk = await blob.arrayBuffer();
-      allChunks.push(chunk);
 
-      const hashBuffer = await crypto.subtle.digest('SHA-1', chunk);
-      const sha1Base64 = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+      // Hash du chunk individuel pour l'en-tête Digest
+      const chunkHashBuffer = await crypto.subtle.digest('SHA-1', chunk);
+      const sha1Base64 = btoa(String.fromCharCode(...new Uint8Array(chunkHashBuffer)));
+
+      // Mise à jour du hash incrémental global
+      fullHasher.update(chunk);
 
       const partRes = await fetch(uploadUrl, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/octet-stream',
-          'Content-Range': `bytes ${offset}-${end - 1}/${fileSize}`,
+          'Content-Range': `bytes ${chunkOffset}-${end - 1}/${fileSize}`,
           'Digest': `sha=${sha1Base64}`,
         },
         body: chunk,
@@ -162,22 +164,14 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       const partData = await partRes.json();
       if (!partData.part) throw new Error(`Part manquante chunk ${chunkIndex + 1} : ${JSON.stringify(partData)}`);
       parts.push(partData.part);
-      // Progression : les chunks représentent 85% du travail
-      onProgress?.(Math.round(((chunkIndex + 1) / totalChunks) * 85));
+      // Progression : les chunks représentent 90% du travail
+      onProgress?.(Math.round(((chunkIndex + 1) / totalChunks) * 90));
     }
 
-    // Hash SHA-1 du fichier complet : concaténation des chunks déjà en mémoire
-    // (évite de relire le fichier depuis le disque)
-    const totalBytes = allChunks.reduce((acc, c) => acc + c.byteLength, 0);
-    const merged = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const chunk of allChunks) {
-      merged.set(new Uint8Array(chunk), offset);
-      offset += chunk.byteLength;
-    }
-    onProgress?.(90);
-    const fullHashBuffer = await crypto.subtle.digest('SHA-1', merged);
-    const fullSha1Base64 = btoa(String.fromCharCode(...new Uint8Array(fullHashBuffer)));
+    onProgress?.(92);
+    // Finalisation du hash SHA-1 complet (sans aucune copie mémoire du fichier entier)
+    const fullSha1Hex = fullHasher.hex();
+    const fullSha1Base64 = btoa(fullSha1Hex.match(/.{2}/g)!.map(b => String.fromCharCode(parseInt(b, 16))).join(''));
 
     // Commit
     const commitRes = await fetch(commitUrl, {
