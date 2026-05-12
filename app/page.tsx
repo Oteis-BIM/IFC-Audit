@@ -8,6 +8,7 @@ import {
   Upload, X, FileBox, Eye
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
+import type { FileEntry } from './components/IfcViewer';
 
 const IfcViewer = NextDynamic(() => import('./components/IfcViewer'), { ssr: false });
 
@@ -33,7 +34,7 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
-  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [viewerFiles, setViewerFiles] = useState<FileEntry[]>([]);
   const [boxReady, setBoxReady] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -320,19 +321,18 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     if (s === 'OK') return { color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'RÉUSSI', icon: <CheckCircle className="text-emerald-500" /> };
     if (s === 'WARNING') return { color: 'text-orange-500', bg: 'bg-orange-50', label: 'AVERTISSEMENT', icon: <AlertCircle className="text-orange-500" /> };
     return { color: 'text-red-500', bg: 'bg-red-50', label: 'CRITIQUE', icon: <AlertCircle className="text-red-500" /> };
-  };  async function handleView(details: string | null) {
+  };  async function handleView(details: string | null, fileName: string) {
     if (!details) return alert('Aucun fichier associé à cette maquette.');
     if (details.startsWith('box:')) {
-      // Format box:fileId:downloadUrl
       const parts = details.split(':');
-      const downloadUrl = parts.slice(2).join(':');
-      if (downloadUrl) setViewerUrl(downloadUrl);
-      else alert('URL de téléchargement Box manquante.');
+      const fileId = parts[1];
+      if (!fileId) return alert('ID fichier Box manquant.');
+      // Ajouter à la visionneuse (sans doublon)
+      setViewerFiles(prev =>
+        prev.some(f => f.fileId === fileId) ? prev : [...prev, { fileId, fileName }]
+      );
     } else {
-      // Ancien format Supabase Storage
-      const path = details.replace('Fichier uploadé : ', '').trim();
-      const { data } = supabase.storage.from('ifc-files').getPublicUrl(path);
-      setViewerUrl(data.publicUrl);
+      alert('Format de fichier non supporté par la visionneuse.');
     }
   }
 
@@ -429,9 +429,8 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
                 return (                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
                     <div className="flex justify-between items-start mb-4">
                       <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
-                      <div className="flex items-center gap-2">                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
-                        <button
-                          onClick={() => handleView(a.details)}
+                      <div className="flex items-center gap-2">                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>                        <button
+                          onClick={() => handleView(a.details, a.project_name)}
                           className="text-blue-400 hover:text-blue-600 transition-colors"
                           title="Visualiser"
                         >
@@ -576,8 +575,12 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
           </div>
         </div>
       )}      {/* VISIONNEUSE IFC */}
-      {viewerUrl && (
-        <IfcViewer fileUrl={viewerUrl} onClose={() => setViewerUrl(null)} />
+      {viewerFiles.length > 0 && (
+        <IfcViewer
+          files={viewerFiles}
+          onClose={() => setViewerFiles([])}
+          onRemoveFile={(fileId) => setViewerFiles(prev => prev.filter(f => f.fileId !== fileId))}
+        />
       )}
     </div>
   );
