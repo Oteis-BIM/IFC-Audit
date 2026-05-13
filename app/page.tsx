@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import {   LayoutDashboard, Layers, Compass, Database, Settings2,
+import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
   Upload, X, FileBox, Eye, Loader2
 } from 'lucide-react';
@@ -412,15 +412,14 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
           </button>
           <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
             <Layers className="mr-3 h-5 w-5" /> Contrôle Structure Maquette
-          </button>
-          <button className="w-full flex items-center px-4 py-3 text-sm font-medium bg-slate-100 text-blue-600 rounded-lg">
-            <Compass className="mr-3 h-5 w-5" /> Audit Géométrique
+          </button>          <button className="w-full flex items-center px-4 py-3 text-sm font-medium bg-slate-100 text-blue-600 rounded-lg">
+            <Ruler className="mr-3 h-5 w-5" /> Audit Géométrique
           </button>
           <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
             <Database className="mr-3 h-5 w-5" /> Vérification Métadonnées
           </button>
           <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
-            <Settings2 className="mr-3 h-5 w-5" /> Validation
+            <CheckCircle2 className="mr-3 h-5 w-5" /> Validation
           </button>
         </nav>
       </aside>
