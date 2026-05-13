@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { 
   LayoutDashboard, Box, CheckCircle2, 
   Search, BarChart3, Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox, Eye
+  Upload, X, FileBox, Eye, Loader2
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
 import type { FileEntry } from './components/IfcViewer';
@@ -32,9 +32,10 @@ type SelectedFile = {
 export default function Dashboard() {  const [showForm, setShowForm] = useState(false);
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);  const [uploading, setUploading] = useState(false);
-  const [viewerFiles, setViewerFiles] = useState<FileEntry[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);  const [uploading, setUploading] = useState(false);  const [viewerFiles, setViewerFiles] = useState<FileEntry[]>([]);
   const [boxReady, setBoxReady] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Audit | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function fetchAudits() {
@@ -353,15 +354,45 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       alert('Format de fichier non supporté par la visionneuse.');
     }
   }
-
   async function handleDelete(id: number) {
-    if (!confirm('Supprimer cette maquette ?')) return;
-    const { error } = await supabase.from('audits').delete().eq('id', id);
-    if (error) {
-      alert(`Erreur de suppression : ${error.message}`);
-      console.error(error);
-    } else {
+    const audit = audits.find(a => a.id === id);
+    if (!audit) return;
+    setDeleteTarget(audit);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      // Supprimer le fichier sur Box si disponible
+      if (deleteTarget.details?.startsWith('box:')) {
+        const boxFileId = deleteTarget.details.split(':')[1];
+        if (boxFileId) {
+          const boxRes = await fetch('/api/box/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: boxFileId }),
+          });
+          if (!boxRes.ok) {
+            const err = await boxRes.json();
+            throw new Error(`Erreur Box : ${err.error ?? boxRes.status}`);
+          }
+        }
+      }
+      // Supprimer de Supabase
+      const { error } = await supabase.from('audits').delete().eq('id', deleteTarget.id);
+      if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+      // Retirer du viewer si ouvert
+      if (deleteTarget.details?.startsWith('box:')) {
+        const boxFileId = deleteTarget.details.split(':')[1];
+        setViewerFiles(prev => prev.filter(f => f.fileId !== boxFileId));
+      }
+      setDeleteTarget(null);
       fetchAudits();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Erreur inconnue');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -604,8 +635,50 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
           }
           onAddFile={(fileId, fileName) =>
             setViewerFiles(prev => prev.some(f => f.fileId === fileId) ? prev : [...prev, { fileId, fileName }])
-          }
-        />
+          }        />
+      )}
+
+      {/* MODALE CONFIRMATION SUPPRESSION */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+            <div className="flex items-center gap-4 mb-5">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+                <AlertCircle className="h-6 w-6 text-red-500" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Confirmer la suppression</h3>
+                <p className="text-sm text-slate-500 mt-0.5">Cette action est irréversible</p>
+              </div>
+            </div>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 px-4 py-3 mb-6">
+              <p className="text-xs text-slate-500 mb-1">Maquette à supprimer :</p>
+              <p className="text-sm font-semibold text-slate-800 break-words">{deleteTarget.project_name}</p>
+              {deleteTarget.details?.startsWith('box:') && (
+                <p className="text-xs text-orange-600 mt-1.5 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  Le fichier sera également supprimé sur Box
+                </p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 py-2.5 text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deleting}
+                className="flex-1 py-2.5 text-sm font-bold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleting ? <><Loader2 className="h-4 w-4 animate-spin" /> Suppression...</> : 'Supprimer définitivement'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
