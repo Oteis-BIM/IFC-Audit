@@ -2,9 +2,8 @@
 export const dynamic = 'force-dynamic';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { 
-  LayoutDashboard, Box, CheckCircle2, 
-  Search, BarChart3, Bell, UserCircle, AlertCircle, CheckCircle,
+import {   LayoutDashboard, Layers, Compass, Database, Settings2,
+  Bell, UserCircle, AlertCircle, CheckCircle,
   Upload, X, FileBox, Eye, Loader2
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
@@ -407,20 +406,22 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Contexte du projet</p>
           <h2 className="text-lg font-bold text-slate-800">Project Alpha</h2>
           <p className="text-xs text-slate-500 uppercase">QC Haute Précision</p>
-        </div>
-        <nav className="flex-1 px-4 space-y-1">
-          <button className="w-full flex items-center px-4 py-3 text-sm font-medium bg-slate-100 text-blue-600 rounded-lg">
+        </div>        <nav className="flex-1 px-4 space-y-1">
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
             <LayoutDashboard className="mr-3 h-5 w-5" /> Vue d'ensemble
           </button>
-          {["Audit Géométrique", "Vérification des Métadonnées", "Gestionnaire de Collisions", "Validation"].map((item, i) => (
-            <button key={i} className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
-              {i === 0 && <BarChart3 className="mr-3 h-5 w-5" />}
-              {i === 1 && <Box className="mr-3 h-5 w-5" />}
-              {i === 2 && <Search className="mr-3 h-5 w-5" />}
-              {i === 3 && <CheckCircle2 className="mr-3 h-5 w-5" />}
-              {item}
-            </button>
-          ))}
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+            <Layers className="mr-3 h-5 w-5" /> Contrôle Structure Maquette
+          </button>
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium bg-slate-100 text-blue-600 rounded-lg">
+            <Compass className="mr-3 h-5 w-5" /> Audit Géométrique
+          </button>
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+            <Database className="mr-3 h-5 w-5" /> Vérification Métadonnées
+          </button>
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+            <Settings2 className="mr-3 h-5 w-5" /> Validation
+          </button>
         </nav>
       </aside>
 
