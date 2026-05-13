@@ -593,12 +593,18 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
             </div>
           </div>
         </div>
-      )}      {/* VISIONNEUSE IFC */}
-      {viewerFiles.length > 0 && (
+      )}      {/* VISIONNEUSE IFC */}      {viewerFiles.length > 0 && (
         <IfcViewer
           files={viewerFiles}
           onClose={() => setViewerFiles([])}
           onRemoveFile={(fileId) => setViewerFiles(prev => prev.filter(f => f.fileId !== fileId))}
+          availableFiles={audits
+            .filter(a => a.details?.startsWith('box:'))
+            .map(a => ({ fileId: a.details!.split(':')[1], fileName: a.project_name }))
+          }
+          onAddFile={(fileId, fileName) =>
+            setViewerFiles(prev => prev.some(f => f.fileId === fileId) ? prev : [...prev, { fileId, fileName }])
+          }
         />
       )}
     </div>

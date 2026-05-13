@@ -1,7 +1,7 @@
 ﻿"use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
-import { Eye, EyeOff, X, Loader2 } from "lucide-react";
+import { Eye, EyeOff, X, Loader2, Plus, ChevronDown } from "lucide-react";
 
 export interface FileEntry {
   fileId: string;
@@ -12,6 +12,8 @@ interface IfcViewerProps {
   files: FileEntry[];
   onClose: () => void;
   onRemoveFile: (fileId: string) => void;
+  availableFiles?: FileEntry[];
+  onAddFile?: (fileId: string, fileName: string) => void;
 }
 
 // Palette de teintes HSL par modele (modele 0 = couleurs natives IFC)
@@ -34,7 +36,7 @@ type ModelState = {
   meshCount: number;
 };
 
-export default function IfcViewer({ files, onClose, onRemoveFile }: IfcViewerProps) {
+export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles = [], onAddFile }: IfcViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -45,6 +47,7 @@ export default function IfcViewer({ files, onClose, onRemoveFile }: IfcViewerPro
   const targetRef = useRef(new THREE.Vector3());
   const animIdRef = useRef<number>(0);
   const [models, setModels] = useState<ModelState[]>([]);
+  const [showAddPanel, setShowAddPanel] = useState(false);
 
   // Instance IfcAPI partagée + mutex pour sérialiser les chargements
   // (web-ifc ne supporte pas plusieurs Init() simultanés)
@@ -364,9 +367,38 @@ export default function IfcViewer({ files, onClose, onRemoveFile }: IfcViewerPro
                 </div>
               ))}
             </div>
-            <div className="p-3 border-t border-slate-200 text-[10px] text-slate-400 text-center leading-snug">
-              Cliquez sur 👁 dans le tableau pour ajouter un modèle
-            </div>
+            {/* Bouton + Ajouter une maquette */}
+            {onAddFile && availableFiles.length > 0 && (
+              <div className="border-t border-slate-200">
+                <button
+                  onClick={() => setShowAddPanel(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Ajouter une maquette</span>
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAddPanel ? 'rotate-180' : ''}`} />
+                </button>
+                {showAddPanel && (
+                  <div className="px-2.5 pb-2.5 space-y-1 max-h-40 overflow-y-auto">
+                    {availableFiles
+                      .filter(f => !files.some(lf => lf.fileId === f.fileId))
+                      .map(f => (
+                        <button
+                          key={f.fileId}
+                          onClick={() => { onAddFile(f.fileId, f.fileName); setShowAddPanel(false); }}
+                          className="w-full text-left text-xs bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-lg px-3 py-2 truncate transition-colors"
+                          title={f.fileName}
+                        >
+                          {f.fileName}
+                        </button>
+                      ))
+                    }
+                    {availableFiles.filter(f => !files.some(lf => lf.fileId === f.fileId)).length === 0 && (
+                      <p className="text-[10px] text-slate-400 italic text-center py-2">Toutes les maquettes sont chargées</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Canvas 3D */}
