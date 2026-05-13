@@ -134,22 +134,21 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ folder_id: folderId, file_size: fileSize, file_name: file.name }),
-    });
-    const session = await sessionRes.json();
+    });    const session = await sessionRes.json();
     if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);
     const uploadUrl = session.session_endpoints?.upload_part;
     const commitUrl = session.session_endpoints?.commit;
+    // Box impose la taille de chunk via part_size (varie selon la taille du fichier)
+    const partSize: number = session.part_size ?? CHUNK_SIZE;
     const parts: { part_id: string; offset: number; size: number }[] = [];
-    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);    // Hash SHA-1 incrémental du fichier complet (évite de tout garder en RAM)
+    const totalChunks = Math.ceil(fileSize / partSize);// Hash SHA-1 incrémental du fichier complet (évite de tout garder en RAM)
     // js-sha1 est un module CJS → module.exports = fn, donc default = fn
     const sha1Mod = await import('js-sha1');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sha1Fn = (sha1Mod as any).sha1 ?? (sha1Mod as any).default ?? sha1Mod;
-    const fullHasher = sha1Fn.create();
-
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      const chunkOffset = chunkIndex * CHUNK_SIZE;
-      const end = Math.min(chunkOffset + CHUNK_SIZE, fileSize);
+    const fullHasher = sha1Fn.create();    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      const chunkOffset = chunkIndex * partSize;
+      const end = Math.min(chunkOffset + partSize, fileSize);
       const blob = file.slice(chunkOffset, end);
       const chunk = await blob.arrayBuffer();
 
