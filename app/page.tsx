@@ -99,24 +99,37 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     onProgress?: (pct: number) => void
   ): Promise<string> {
     const CHUNK_SIZE = 8 * 1024 * 1024;
-    const fileSize = file.size;
-
-    if (fileSize <= 50 * 1024 * 1024) {
-      // Simple upload
+    const fileSize = file.size;    if (fileSize <= 50 * 1024 * 1024) {
+      // Simple upload — simulation progression pendant le fetch
+      onProgress?.(10);
       const boxForm = new FormData();
       boxForm.append('attributes', JSON.stringify({ name: file.name, parent: { id: folderId } }));
       boxForm.append('file', file);
-      const res = await fetch('https://upload.box.com/api/2.0/files/content', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: boxForm,
-      });
-      const data = await res.json();
-      const id = data.entries?.[0]?.id;
-      if (!id) throw new Error(`Upload simple Box échoué : ${JSON.stringify(data)}`);
-      onProgress?.(100);
-      return id;
-    }    // Chunked upload — lecture chunk par chunk sans charger tout le fichier en RAM
+
+      // Progression simulée toutes les 300ms pendant l'upload
+      let pct = 10;
+      const ticker = setInterval(() => {
+        pct = Math.min(90, pct + 8);
+        onProgress?.(pct);
+      }, 300);
+
+      try {
+        const res = await fetch('https://upload.box.com/api/2.0/files/content', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: boxForm,
+        });
+        clearInterval(ticker);
+        const data = await res.json();
+        const id = data.entries?.[0]?.id;
+        if (!id) throw new Error(`Upload simple Box échoué : ${JSON.stringify(data)}`);
+        onProgress?.(100);
+        return id;
+      } catch (e) {
+        clearInterval(ticker);
+        throw e;
+      }
+    }// Chunked upload — lecture chunk par chunk sans charger tout le fichier en RAM
     const sessionRes = await fetch('https://upload.box.com/api/2.0/files/upload_sessions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -127,11 +140,12 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     const uploadUrl = session.session_endpoints?.upload_part;
     const commitUrl = session.session_endpoints?.commit;
     const parts: { part_id: string; offset: number; size: number }[] = [];
-    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);
-
-    // Hash SHA-1 incrémental du fichier complet (évite de tout garder en RAM)
-    const { sha1 } = await import('js-sha1');
-    const fullHasher = sha1.create();
+    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE);    // Hash SHA-1 incrémental du fichier complet (évite de tout garder en RAM)
+    // js-sha1 est un module CJS → module.exports = fn, donc default = fn
+    const sha1Mod = await import('js-sha1');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sha1Fn = (sha1Mod as any).sha1 ?? (sha1Mod as any).default ?? sha1Mod;
+    const fullHasher = sha1Fn.create();
 
     for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
       const chunkOffset = chunkIndex * CHUNK_SIZE;
@@ -171,7 +185,7 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
     onProgress?.(92);
     // Finalisation du hash SHA-1 complet (sans aucune copie mémoire du fichier entier)
     const fullSha1Hex = fullHasher.hex();
-    const fullSha1Base64 = btoa(fullSha1Hex.match(/.{2}/g)!.map(b => String.fromCharCode(parseInt(b, 16))).join(''));
+    const fullSha1Base64 = btoa(fullSha1Hex.match(/.{2}/g)!.map((b: string) => String.fromCharCode(parseInt(b, 16))).join(''));
 
     // Commit
     const commitRes = await fetch(commitUrl, {
