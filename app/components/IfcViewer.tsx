@@ -205,7 +205,9 @@ export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles
 
         // Instance WASM partagée — initialisée une seule fois
         const ifcApi = await getIfcApi();
-        const modelID = ifcApi.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
+        // COORDINATE_TO_ORIGIN doit être false pour la fédération :
+        // true recentre chaque modèle indépendamment et brise l'alignement
+        const modelID = ifcApi.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: false });
 
         const group = new THREE.Group();
         group.name = fileId;
