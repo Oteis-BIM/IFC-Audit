@@ -72,9 +72,8 @@ export async function GET(req: NextRequest) {
         'Content-Type': 'application/octet-stream',
         'Content-Disposition': `attachment; filename="model.ifc"`,
       },
-    });
-    // Mise à jour des cookies avec les nouveaux tokens
-    response.cookies.set('box_access_token', newAccessToken, {
+    });    // Mise à jour des cookies avec les nouveaux tokens
+    response.cookies.set('box_access_token', newAccessToken ?? '', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       maxAge: 3600,
