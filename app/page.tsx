@@ -1297,8 +1297,16 @@ export default function Dashboard() {
                         </p>
                       </div>
                     );
-                  })}
-                </div>              )}
+                  })}                </div>              )}
+              {/* Grille de contrôle qualité par chapitre */}
+              <MaquettesView
+                audits={audits}
+                loading={loading}
+                onNewAnalysis={() => setShowForm(true)}
+                onView={handleView}
+                onDelete={handleDelete}
+                chapitresOnly
+              />
             </>
           ) : activeTab === 'Rapports' ?(
             <RapportsView audits={audits} loading={loading} />
