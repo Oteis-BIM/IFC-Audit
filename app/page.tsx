@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, FileSpreadsheet
+  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, FileSpreadsheet, Sparkles
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
 import type { FileEntry } from './components/IfcViewer';
@@ -455,12 +455,49 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   chapitresOnly?: boolean;
 }){
   const maquettes = audits.slice(0, 6);
-
   const [cells, setCells] = useState<Record<string, CellStatus>>({});
   const [namingPattern, setNamingPattern] = useState('');
+  const [aiLoading, setAiLoading] = useState<Record<number, boolean>>({});
+  const [aiError, setAiError] = useState<Record<number, string>>({});
+  const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
 
   const setCell = (itemId: string, maqId: number, val: CellStatus) =>
     setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
+
+  async function runAiAudit(audit: Audit) {
+    if (!audit.details?.startsWith('box:')) return;
+    const { fileId, discipline } = parseMaquetteDetails(audit.details);
+    if (!fileId) return;
+    setAiLoading(prev => ({ ...prev, [audit.id]: true }));
+    setAiError(prev => ({ ...prev, [audit.id]: '' }));
+    setAiDone(prev => ({ ...prev, [audit.id]: false }));
+    try {
+      const res = await fetch('/api/ai-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, fileName: audit.project_name, discipline }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      // Injecter les résultats dans les cellules
+      const results: Record<string, { status: string; comment: string }> = data.results;
+      setCells(prev => {
+        const next = { ...prev };
+        for (const [itemId, val] of Object.entries(results)) {
+          const st = val.status as CellStatus;
+          if (['ok', 'warning', 'error', 'na'].includes(st)) {
+            next[`${itemId}-${audit.id}`] = st;
+          }
+        }
+        return next;
+      });
+      setAiDone(prev => ({ ...prev, [audit.id]: true }));
+    } catch (err: unknown) {
+      setAiError(prev => ({ ...prev, [audit.id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setAiLoading(prev => ({ ...prev, [audit.id]: false }));
+    }
+  }
 
   // Vérifie si le nom de fichier respecte le pattern saisi (* = wildcard)
   function checkNaming(filename: string, pattern: string): CellStatus {
@@ -569,13 +606,52 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                 />
               ))}
             </div>
-          )}
-
-          {/* Cartes par chapitre de contrôle */}
+          )}          {/* Cartes par chapitre de contrôle */}
           <div className="flex items-center gap-3 mb-6">
             <div className="h-1 w-6 rounded bg-slate-900" />
             <h3 className="text-xl font-black text-slate-900">Grille de contrôle qualité par chapitre</h3>
           </div>
+
+          {/* Boutons Analyse IA par maquette */}
+          {maquettes.length > 0 && (
+            <div className="flex flex-wrap gap-3 mb-6 p-4 bg-gradient-to-r from-violet-50 to-blue-50 border border-violet-200 rounded-2xl">
+              <div className="w-full flex items-center gap-2 mb-1">
+                <Sparkles className="h-4 w-4 text-violet-500" />
+                <span className="text-sm font-bold text-violet-700">Analyse IA automatique</span>
+                <span className="text-xs text-violet-400">— GPT-4o-mini analyse le contenu IFC et pré-remplit les contrôles</span>
+              </div>
+              {maquettes.map(m => {
+                const { discipline } = parseMaquetteDetails(m.details);
+                const label = discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 16);
+                const isLoading = aiLoading[m.id];
+                const isDone = aiDone[m.id];
+                const error = aiError[m.id];
+                return (
+                  <div key={m.id} className="flex flex-col gap-1">
+                    <button
+                      onClick={() => runAiAudit(m)}
+                      disabled={isLoading}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                        isDone
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                          : isLoading
+                          ? 'bg-violet-100 text-violet-400 border-violet-200 cursor-wait'
+                          : 'bg-white text-violet-700 border-violet-300 hover:bg-violet-100 hover:border-violet-400 shadow-sm'
+                      }`}
+                    >
+                      {isLoading
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Analyse en cours…</>
+                        : isDone
+                        ? <><CheckCircle className="h-3.5 w-3.5" /> {label} — Analysé</>
+                        : <><Sparkles className="h-3.5 w-3.5" /> Analyser {label}</>
+                      }
+                    </button>
+                    {error && <p className="text-[10px] text-red-500 max-w-[200px] leading-tight">{error}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className="flex items-center gap-3 text-xs text-slate-500 bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 mb-6 w-fit flex-wrap">
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-emerald-100 text-emerald-700 rounded flex items-center justify-center font-bold text-[10px]">✓</span> Conforme</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-orange-100 text-orange-600 rounded flex items-center justify-center font-bold text-[10px]">⚠</span> Écart</span>
