@@ -425,13 +425,14 @@ function MaquetteCard({ card, onView, onDelete }: { card: MaquetteCardData & { i
   );
 }
 
-function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
+function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapitresOnly = false }: {
   audits: Audit[];
   loading: boolean;
   onNewAnalysis: () => void;
   onView: (details: string | null, name: string) => void;
   onDelete: (id: number) => void;
-}) {
+  chapitresOnly?: boolean;
+}){
   const maquettes = audits.slice(0, 6);
 
   const [cells, setCells] = useState<Record<string, CellStatus>>({});
@@ -492,25 +493,26 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
       ],
     };
   });
-
   return (
     <div>
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900">Contrôles par Maquette</h2>
-          <p className="text-slate-500 mt-1 max-w-lg text-sm">
-            Vue détaillée par maquette et grille de contrôle qualité par chapitre.
-          </p>
+      {!chapitresOnly && (
+        <div className="flex items-start justify-between mb-8">
+          <div>
+            <h2 className="text-3xl font-bold text-slate-900">Contrôles par Maquette</h2>
+            <p className="text-slate-500 mt-1 max-w-lg text-sm">
+              Vue détaillée par maquette et grille de contrôle qualité par chapitre.
+            </p>
+          </div>
+          <div className="flex gap-3 shrink-0">
+            <button className="border border-slate-300 text-slate-700 px-5 py-2.5 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> Exporter Rapport PDF
+            </button>
+            <button onClick={onNewAnalysis} className="bg-slate-900 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors">
+              <Upload className="h-4 w-4" /> Nouvelle Analyse
+            </button>
+          </div>
         </div>
-        <div className="flex gap-3 shrink-0">
-          <button className="border border-slate-300 text-slate-700 px-5 py-2.5 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" /> Exporter Rapport PDF
-          </button>
-          <button onClick={onNewAnalysis} className="bg-slate-900 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors">
-            <Upload className="h-4 w-4" /> Nouvelle Analyse
-          </button>
-        </div>
-      </div>
+      )}
 
       {loading ? (
         <p className="text-slate-400 italic animate-pulse">Chargement...</p>
@@ -519,20 +521,21 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
           <FileBox className="h-12 w-12 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-500 font-medium">Aucune maquette disponible</p>
           <p className="text-slate-400 text-sm mt-1">Cliquez sur &quot;Nouvelle Analyse&quot; pour charger un fichier IFC.</p>
-        </div>
-      ) : (
+        </div>      ) : (
         <>
-          {/* Cartes par maquette */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-            {cards.map(card => (
-              <MaquetteCard
-                key={card.id}
-                card={card}
-                onView={() => onView(card.details, card.file)}
-                onDelete={() => onDelete(card.id)}
-              />
-            ))}
-          </div>
+          {/* Cartes par maquette — uniquement hors mode chapitresOnly */}
+          {!chapitresOnly && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
+              {cards.map(card => (
+                <MaquetteCard
+                  key={card.id}
+                  card={card}
+                  onView={() => onView(card.details, card.file)}
+                  onDelete={() => onDelete(card.id)}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Cartes par chapitre de contrôle */}
           <div className="flex items-center gap-3 mb-6">
@@ -1061,7 +1064,7 @@ export default function Dashboard() {
               ) : audits.length === 0 ? (
                 <p className="text-slate-400 italic">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
               ) : (
-                <div className="grid grid-cols-4 gap-6">
+                <div className="grid grid-cols-4 gap-6 mb-12">
                   {audits.map((a) => {
                     const style = getStyle(a.status);
                     return (
@@ -1083,7 +1086,15 @@ export default function Dashboard() {
                     );
                   })}
                 </div>
-              )}
+              )}              {/* Grille de contrôle qualité par chapitre */}
+              <MaquettesView
+                audits={audits}
+                loading={loading}
+                onNewAnalysis={() => setShowForm(true)}
+                onView={handleView}
+                onDelete={handleDelete}
+                chapitresOnly
+              />
             </>
           ) : activeTab === 'Rapports' ? (
             <RapportsView audits={audits} loading={loading} />
