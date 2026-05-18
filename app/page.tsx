@@ -462,27 +462,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
       ],
     };
   });
-
   return (
     <div>
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900">Contrôles par Maquette</h2>
-          <p className="text-slate-500 mt-1 max-w-lg text-sm">
-            Visualisez l&apos;état de conformité détaillé de chaque discipline du projet Alpha.
-            Les audits sont effectués en temps réel sur les fichiers IFC exportés.
-          </p>
-        </div>
-        <div className="flex gap-3 shrink-0">
-          <button className="border border-slate-300 text-slate-700 px-5 py-2.5 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2">
-            <TrendingUp className="h-4 w-4" /> Exporter Rapport PDF
-          </button>
-          <button onClick={onNewAnalysis} className="bg-slate-900 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors">
-            <Upload className="h-4 w-4" /> Nouvelle Analyse
-          </button>
-        </div>
-      </div>
-
       {loading ? (
         <p className="text-slate-400 italic animate-pulse">Chargement...</p>
       ) : cards.length === 0 ? (
@@ -930,22 +911,65 @@ export default function Dashboard() {
           </nav>
           <div className="flex items-center space-x-4"><Bell className="h-5 w-5 text-slate-400" /><UserCircle className="h-6 w-6 text-slate-400" /></div>
         </header>        <div className="flex-1 overflow-y-auto p-8">          {activeTab === 'Maquettes' ? (
-            <MaquettesView audits={audits} loading={loading} onNewAnalysis={() => setShowForm(true)} onView={handleView} onDelete={handleDelete} />
+            <>
+              <div className="flex justify-between items-end mb-8">
+                <div>
+                  <h2 className="text-3xl font-bold text-slate-900">Maquettes Fédérées</h2>
+                  <p className="text-slate-500">Liste des fichiers IFC chargés dans le projet</p>
+                </div>
+                <button
+                  onClick={() => setShowForm(true)}
+                  className="bg-[#f95700] hover:bg-orange-700 text-white px-6 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition-all"
+                >
+                  <Upload className="h-4 w-4" /> + Charger une nouvelle maquette
+                </button>
+              </div>
+              {loading ? (
+                <p className="text-slate-400 italic animate-pulse">Chargement depuis Supabase...</p>
+              ) : audits.length === 0 ? (
+                <p className="text-slate-400 italic">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
+              ) : (
+                <div className="grid grid-cols-4 gap-6">
+                  {audits.map((a) => {
+                    const style = getStyle(a.status);
+                    return (
+                      <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
+                            <button onClick={() => handleView(a.details, a.project_name)} className="text-blue-400 hover:text-blue-600 transition-colors" title="Visualiser"><Eye className="h-4 w-4" /></button>
+                            <button onClick={() => handleDelete(a.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Supprimer"><X className="h-4 w-4" /></button>
+                          </div>
+                        </div>
+                        <h4 className="font-bold text-slate-800">{a.project_name}</h4>
+                        <p className="text-[10px] text-slate-400 mb-2 italic">
+                          {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </p>
+                        {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           ) : activeTab === 'Rapports' ? (
             <RapportsView audits={audits} loading={loading} />
           ) : (
             <>
           <div className="flex justify-between items-end mb-8">
             <div>
-              <h2 className="text-3xl font-bold text-slate-900">Statut des Maquettes</h2>
+              <h2 className="text-3xl font-bold text-slate-900">Tableau de bord</h2>
               <p className="text-slate-500">Indicateurs de performance globale du projet</p>
-            </div>            <button 
+            </div>
+            <button
               onClick={() => setShowForm(true)}
               className="bg-[#f95700] hover:bg-orange-700 text-white px-6 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition-all"
             >
               <Upload className="h-4 w-4" /> + Charger une nouvelle maquette
             </button>
-          </div>          {/* STATS CARDS */}
+          </div>
+          {/* STATS CARDS */}
           <div className="grid grid-cols-3 gap-6 mb-10">
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total des maquettes</p>
@@ -961,44 +985,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* MAQUETTES DEPUIS SUPABASE */}
-          <h3 className="text-xl font-bold mb-6">Maquettes Fédérées</h3>
-          {loading ? (
-            <p className="text-slate-400 italic animate-pulse">Chargement depuis Supabase...</p>
-          ) : audits.length === 0 ? (
-            <p className="text-slate-400 italic">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
-          ) : (
-            <div className="grid grid-cols-4 gap-6">
-              {audits.map((a) => {
-                const style = getStyle(a.status);
-                return (                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
-                    <div className="flex justify-between items-start mb-4">
-                      <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
-                      <div className="flex items-center gap-2">                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>                        <button
-                          onClick={() => handleView(a.details, a.project_name)}
-                          className="text-blue-400 hover:text-blue-600 transition-colors"
-                          title="Visualiser"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(a.id)}
-                          className="text-red-400 hover:text-red-600 transition-colors"
-                          title="Supprimer"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <h4 className="font-bold text-slate-800">{a.project_name}</h4>
-                    <p className="text-[10px] text-slate-400 mb-2 italic">
-                      {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </p>
-                    {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
-                  </div>
-                );
-              })}            </div>
-          )}
+          {/* CARTES DÉTAILLÉES PAR MAQUETTE */}
+          <MaquettesView audits={audits} loading={loading} onNewAnalysis={() => setShowForm(true)} onView={handleView} onDelete={handleDelete} />
             </>
           )}
         </div>
