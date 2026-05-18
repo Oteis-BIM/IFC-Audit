@@ -544,20 +544,14 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-orange-100 text-orange-600 rounded flex items-center justify-center font-bold text-[10px]">⚠</span> Écart</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
-          </div>
-
-          <div className="space-y-10">
-            {sections.map(({ section, cats }) => (
-              <div key={section}>
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="h-1 w-6 rounded bg-slate-900" />
-                  <h4 className="text-lg font-black text-slate-900 uppercase tracking-widest">{section}</h4>
-                </div>
-                <div className="space-y-5">
-                  {cats.map(cat => (
+          </div>          <div className="space-y-5">
+            {RAPPORT_CATEGORIES.map(cat => (
                     <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
-                        <span className="text-sm font-bold text-white">{cat.category}</span>
+                        <div>
+                          <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
+                          <div className="text-sm font-bold text-white">{cat.category}</div>
+                        </div>
                         <div className="flex items-center gap-3">
                           {maquettes.map(m => {
                             const s = scoreForCat(cat.items, m.id);
@@ -618,9 +612,6 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
                         </table>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
             ))}
           </div>
         </>
