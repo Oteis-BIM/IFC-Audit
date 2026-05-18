@@ -22,11 +22,27 @@ type Audit = {
 type SelectedFile = {
   file: File;
   status: 'OK' | 'WARNING' | 'CRITICAL';
+  discipline: string;
   uploading: boolean;
   done: boolean;
   error: string | null;
   progress: number; // progression 0-100 par fichier
 };
+
+// ─── Helper : parse le champ details stocké en Supabase ───────────────────────
+// Nouveau format : box:fileId:discipline:downloadUrl
+// Ancien format  : box:fileId:downloadUrl  (rétrocompat)
+function parseMaquetteDetails(details: string | null): { fileId: string; discipline: string; downloadUrl: string } {
+  if (!details?.startsWith('box:')) return { fileId: '', discipline: '', downloadUrl: '' };
+  const parts = details.split(':');
+  const fileId = parts[1] ?? '';
+  const third = parts[2] ?? '';
+  // Si le 3e segment ressemble à une URL ou est vide → ancien format
+  if (third === '' || third === 'https' || third === 'http') {
+    return { fileId, discipline: '', downloadUrl: parts.slice(2).join(':') };
+  }
+  return { fileId, discipline: third, downloadUrl: parts.slice(3).join(':') };
+}
 
 // ─── Vue Rapports ─────────────────────────────────────────────────────────────
 
@@ -224,16 +240,21 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
                 <tr className="bg-slate-900 text-white">
                   <th className="text-left px-3 py-3 font-bold w-16 border-r border-slate-700 whitespace-nowrap">N°</th>
                   <th className="text-left px-4 py-3 font-bold min-w-[280px] border-r border-slate-700">Objet / Item de contrôle</th>
-                  <th className="text-left px-4 py-3 font-bold min-w-[240px] border-r border-slate-700 text-blue-300">Attendu</th>
-                  {maquettes.length === 0
+                  <th className="text-left px-4 py-3 font-bold min-w-[240px] border-r border-slate-700 text-blue-300">Attendu</th>                  {maquettes.length === 0
                     ? <th className="text-center px-4 py-3 font-bold text-slate-400 italic">← Chargez des maquettes</th>
-                    : maquettes.map(m => (
-                        <th key={m.id} className="text-center px-2 py-3 font-bold min-w-[110px] border-r border-slate-700 last:border-r-0">
-                          <div className="truncate max-w-[100px] mx-auto text-[11px]" title={m.project_name}>
-                            {m.project_name.replace(/\.ifc$/i, '')}
-                          </div>
-                        </th>
-                      ))
+                    : maquettes.map(m => {
+                        const { discipline } = parseMaquetteDetails(m.details);
+                        return (
+                          <th key={m.id} className="text-center px-2 py-3 font-bold min-w-[110px] border-r border-slate-700 last:border-r-0">
+                            {discipline && (
+                              <div className="text-[10px] font-bold text-blue-300 uppercase tracking-wide mb-0.5 truncate max-w-[100px] mx-auto">{discipline}</div>
+                            )}
+                            <div className="truncate max-w-[100px] mx-auto text-[11px] font-medium text-white/80" title={m.project_name}>
+                              {m.project_name.replace(/\.ifc$/i, '')}
+                            </div>
+                          </th>
+                        );
+                      })
                   }
                 </tr>
                 {maquettes.length > 0 && (
@@ -554,14 +575,15 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                         <div>
                           <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
                           <div className="text-sm font-bold text-white">{cat.category}</div>
-                        </div>
-                        <div className="flex items-center gap-3">
+                        </div>                        <div className="flex items-center gap-3">
                           {maquettes.map(m => {
                             const s = scoreForCat(cat.items, m.id);
+                            const { discipline } = parseMaquetteDetails(m.details);
                             const color = s === null ? 'text-white/50' : s >= 80 ? 'text-emerald-300' : s >= 60 ? 'text-orange-300' : 'text-red-300';
+                            const label = discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 8);
                             return (
                               <span key={m.id} className={`text-xs font-black ${color}`} title={m.project_name.replace(/\.ifc$/i, '')}>
-                                {m.project_name.replace(/\.ifc$/i, '').slice(0, 8)} : {s === null ? '—' : `${s}%`}
+                                {label} : {s === null ? '—' : `${s}%`}
                               </span>
                             );
                           })}
@@ -573,16 +595,21 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                             <tr className="bg-slate-50 border-b border-slate-200">
                               <th className="text-left px-3 py-2 font-bold text-slate-400 w-12">N°</th>
                               <th className="text-left px-3 py-2 font-bold text-slate-600 min-w-[200px]">Item de contrôle</th>
-                              <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[200px]">Attendu</th>
-                              {maquettes.length === 0
+                              <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[200px]">Attendu</th>                              {maquettes.length === 0
                                 ? <th className="text-center px-3 py-2 text-slate-300 italic font-normal">← Chargez des maquettes</th>
-                                : maquettes.map(m => (
-                                    <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[90px]">
-                                      <span className="truncate block max-w-[82px] mx-auto" title={m.project_name}>
-                                        {m.project_name.replace(/\.ifc$/i, '').slice(0, 10)}
-                                      </span>
-                                    </th>
-                                  ))
+                                : maquettes.map(m => {
+                                    const { discipline } = parseMaquetteDetails(m.details);
+                                    return (
+                                      <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[90px]">
+                                        {discipline && (
+                                          <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide truncate max-w-[82px] mx-auto">{discipline}</div>
+                                        )}
+                                        <span className="truncate block max-w-[82px] mx-auto text-[10px] font-medium text-slate-500" title={m.project_name}>
+                                          {m.project_name.replace(/\.ifc$/i, '').slice(0, 12)}
+                                        </span>
+                                      </th>
+                                    );
+                                  })
                               }
                             </tr>
                           </thead>
@@ -675,7 +702,7 @@ export default function Dashboard() {
     const ifc = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.ifc'));
     if (ifc.length === 0) return alert('Seuls les fichiers .ifc sont acceptés');    setSelectedFiles(prev => [
       ...prev,
-      ...ifc.map(f => ({ file: f, status: 'OK' as const, uploading: false, done: false, error: null, progress: 0 }))
+      ...ifc.map(f => ({ file: f, status: 'OK' as const, discipline: '', uploading: false, done: false, error: null, progress: 0 }))
     ]);
   }
 
@@ -688,9 +715,12 @@ export default function Dashboard() {
   function removeFile(index: number) {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   }
-
   function updateFileStatus(index: number, status: 'OK' | 'WARNING' | 'CRITICAL') {
     setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, status } : f));
+  }
+
+  function updateFileDiscipline(index: number, discipline: string) {
+    setSelectedFiles(prev => prev.map((f, i) => i === index ? { ...f, discipline } : f));
   }
 
   async function uploadToBoxDirect(
@@ -906,13 +936,11 @@ export default function Dashboard() {
           body: JSON.stringify({ fileId: boxFileId }),
         });
         const slData = await slRes.json();
-        const downloadUrl = slData.downloadUrl || '';
-
-        // Insérer en base Supabase
+        const downloadUrl = slData.downloadUrl || '';        // Insérer en base Supabase
         const { error: dbError } = await supabase.from('audits').insert({
           project_name: sf.file.name,
           status: sf.status,
-          details: `box:${boxFileId}:${downloadUrl}`,
+          details: `box:${boxFileId}:${sf.discipline}:${downloadUrl}`,
         });
 
         if (dbError) throw new Error(`Erreur Supabase : ${dbError.message}`);
@@ -943,8 +971,7 @@ export default function Dashboard() {
   };  async function handleView(details: string | null, fileName: string) {
     if (!details) return alert('Aucun fichier associé à cette maquette.');
     if (details.startsWith('box:')) {
-      const parts = details.split(':');
-      const fileId = parts[1];
+      const { fileId } = parseMaquetteDetails(details);
       if (!fileId) return alert('ID fichier Box manquant.');
       // Ajouter à la visionneuse (sans doublon)
       setViewerFiles(prev =>
@@ -959,14 +986,13 @@ export default function Dashboard() {
     if (!audit) return;
     setDeleteTarget(audit);
   }
-
   async function confirmDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
       // Supprimer le fichier sur Box si disponible
       if (deleteTarget.details?.startsWith('box:')) {
-        const boxFileId = deleteTarget.details.split(':')[1];
+        const { fileId: boxFileId } = parseMaquetteDetails(deleteTarget.details);
         if (boxFileId) {
           const boxRes = await fetch('/api/box/delete', {
             method: 'DELETE',
@@ -984,7 +1010,7 @@ export default function Dashboard() {
       if (error) throw new Error(`Erreur Supabase : ${error.message}`);
       // Retirer du viewer si ouvert
       if (deleteTarget.details?.startsWith('box:')) {
-        const boxFileId = deleteTarget.details.split(':')[1];
+        const { fileId: boxFileId } = parseMaquetteDetails(deleteTarget.details);
         setViewerFiles(prev => prev.filter(f => f.fileId !== boxFileId));
       }
       setDeleteTarget(null);
@@ -1063,10 +1089,10 @@ export default function Dashboard() {
                 <p className="text-slate-400 italic animate-pulse">Chargement depuis Supabase...</p>
               ) : audits.length === 0 ? (
                 <p className="text-slate-400 italic">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
-              ) : (
-                <div className="grid grid-cols-4 gap-6 mb-12">
+              ) : (                <div className="grid grid-cols-4 gap-6 mb-12">
                   {audits.map((a) => {
                     const style = getStyle(a.status);
+                    const { discipline } = parseMaquetteDetails(a.details);
                     return (
                       <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
                         <div className="flex justify-between items-start mb-4">
@@ -1077,11 +1103,13 @@ export default function Dashboard() {
                             <button onClick={() => handleDelete(a.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Supprimer"><X className="h-4 w-4" /></button>
                           </div>
                         </div>
+                        {discipline && (
+                          <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wide mb-0.5">{discipline}</p>
+                        )}
                         <h4 className="font-bold text-slate-800">{a.project_name}</h4>
                         <p className="text-[10px] text-slate-400 mb-2 italic">
                           {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </p>
-                        {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
                       </div>
                     );
                   })}
@@ -1132,10 +1160,10 @@ export default function Dashboard() {
             <p className="text-slate-400 italic animate-pulse">Chargement depuis Supabase...</p>
           ) : audits.length === 0 ? (
             <p className="text-slate-400 italic mb-10">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
-          ) : (
-            <div className="grid grid-cols-4 gap-6 mb-10">
+          ) : (            <div className="grid grid-cols-4 gap-6 mb-10">
               {audits.map((a) => {
                 const style = getStyle(a.status);
+                const { discipline } = parseMaquetteDetails(a.details);
                 return (
                   <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
                     <div className="flex justify-between items-start mb-4">
@@ -1146,11 +1174,13 @@ export default function Dashboard() {
                         <button onClick={() => handleDelete(a.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Supprimer"><X className="h-4 w-4" /></button>
                       </div>
                     </div>
+                    {discipline && (
+                      <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wide mb-0.5">{discipline}</p>
+                    )}
                     <h4 className="font-bold text-slate-800">{a.project_name}</h4>
                     <p className="text-[10px] text-slate-400 mb-2 italic">
                       {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </p>
-                    {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
                   </div>
                 );
               })}
@@ -1219,8 +1249,7 @@ export default function Dashboard() {
             </div>            {/* LISTE DES FICHIERS */}
             {selectedFiles.length > 0 && (
               <div className="space-y-2 max-h-56 overflow-y-auto mb-4">
-                {selectedFiles.map((sf, i) => (
-                  <div key={i} className="flex flex-col bg-slate-50 rounded-lg px-3 py-2 border border-slate-200 gap-1">
+                {selectedFiles.map((sf, i) => (                  <div key={i} className="flex flex-col bg-slate-50 rounded-lg px-3 py-2 border border-slate-200 gap-1.5">
                     <div className="flex items-center gap-3">
                       <FileBox className="h-4 w-4 text-blue-500 shrink-0" />
                       <span className="text-xs font-medium text-slate-700 flex-1 truncate">{sf.file.name}</span>
@@ -1243,6 +1272,23 @@ export default function Dashboard() {
                         </button>
                       )}
                     </div>
+                    {/* Champ discipline */}
+                    {!sf.done && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide shrink-0 w-20">Discipline</label>
+                        <input
+                          type="text"
+                          value={sf.discipline}
+                          onChange={e => updateFileDiscipline(i, e.target.value)}
+                          placeholder="ex: Architecture, Structure, MEP…"
+                          disabled={sf.uploading}
+                          className="flex-1 text-xs border border-slate-200 rounded px-2 py-1 bg-white placeholder-slate-300 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+                        />
+                      </div>
+                    )}
+                    {sf.done && sf.discipline && (
+                      <p className="text-[10px] text-blue-500 font-semibold uppercase tracking-wide">Discipline : {sf.discipline}</p>
+                    )}
                     {/* Barre de progression individuelle */}
                     {sf.uploading && (
                       <div className="w-full">
@@ -1285,10 +1331,9 @@ export default function Dashboard() {
         <IfcViewer
           files={viewerFiles}
           onClose={() => setViewerFiles([])}
-          onRemoveFile={(fileId) => setViewerFiles(prev => prev.filter(f => f.fileId !== fileId))}
-          availableFiles={audits
+          onRemoveFile={(fileId) => setViewerFiles(prev => prev.filter(f => f.fileId !== fileId))}          availableFiles={audits
             .filter(a => a.details?.startsWith('box:'))
-            .map(a => ({ fileId: a.details!.split(':')[1], fileName: a.project_name }))
+            .map(a => ({ fileId: parseMaquetteDetails(a.details).fileId, fileName: a.project_name }))
           }
           onAddFile={(fileId, fileName) =>
             setViewerFiles(prev => prev.some(f => f.fileId === fileId) ? prev : [...prev, { fileId, fileName }])
