@@ -165,25 +165,28 @@ function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: C
 
 function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
   const maquettes = audits.slice(0, 6);
-  const totalItems = RAPPORT_CATEGORIES.reduce((s, c) => s + c.items.length, 0);
 
   const [cells, setCells] = useState<Record<string, CellStatus>>({});
   const setCell = (itemId: string, maqId: number, val: CellStatus) =>
     setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
 
-  const scoreFor = (maqId: number) => {
+  const scoreForCat = (catItems: typeof RAPPORT_CATEGORIES[0]['items'], maqId: number) => {
     let ok = 0, total = 0;
-    RAPPORT_CATEGORIES.forEach(cat => cat.items.forEach(item => {
+    catItems.forEach(item => {
       const v = cells[`${item.id}-${maqId}`];
       if (v) { total++; if (v === 'ok') ok++; }
-    }));
+    });
     return total === 0 ? null : Math.round((ok / total) * 100);
   };
 
-  const scoreColor = (s: number | null) =>
-    s === null ? 'text-slate-400' : s >= 80 ? 'text-emerald-400' : s >= 60 ? 'text-orange-400' : 'text-red-400';
+  const statusMap: Record<CellStatus, { bg: string; label: string }> = {
+    ok:      { bg: 'bg-emerald-100 text-emerald-700', label: '✓' },
+    warning: { bg: 'bg-orange-100 text-orange-600',   label: '⚠' },
+    error:   { bg: 'bg-red-100 text-red-600',          label: '✗' },
+    na:      { bg: 'bg-slate-100 text-slate-400',      label: 'N/A' },
+    '':      { bg: 'bg-white text-slate-300',          label: '—' },
+  };
 
-  // Regrouper les catégories par section pour afficher les séparateurs
   const sections = RAPPORT_CATEGORIES.reduce<{ section: string; cats: typeof RAPPORT_CATEGORIES }[]>((acc, cat) => {
     const existing = acc.find(s => s.section === cat.section);
     if (existing) existing.cats.push(cat);
@@ -191,15 +194,13 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
     return acc;
   }, []);
 
-  const colCount = 4 + maquettes.length;
-
   return (
     <div>
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-3xl font-bold text-slate-900">Rapport de Contrôle</h2>
           <p className="text-slate-500 mt-1 text-sm max-w-xl">
-            Grille d&apos;audit OTEIS — Audit Maquette Numérique. Cliquez sur une cellule pour renseigner le statut.
+            Grille d&apos;audit OTEIS — Audit Maquette Numérique. Cliquez sur un statut pour le renseigner.
           </p>
         </div>
         <div className="flex gap-3 shrink-0 items-start">
@@ -218,94 +219,90 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
       {loading ? (
         <p className="text-slate-400 italic animate-pulse">Chargement...</p>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                {/* Ligne titres colonnes */}                <tr className="bg-slate-900 text-white">
-                  <th className="text-left px-3 py-3 font-bold w-16 border-r border-slate-700 whitespace-nowrap">N°</th>
-                  <th className="text-left px-4 py-3 font-bold min-w-[320px] border-r border-slate-700">Objet / Item de contrôle</th>
-                  <th className="text-left px-4 py-3 font-bold min-w-[240px] border-r border-slate-700 text-blue-300">Attendu</th>
-                  {maquettes.length === 0
-                    ? <th className="text-center px-4 py-3 font-bold text-slate-400 italic">← Chargez des maquettes</th>
-                    : maquettes.map(m => (
-                        <th key={m.id} className="text-center px-2 py-3 font-bold min-w-[110px] border-r border-slate-700 last:border-r-0">
-                          <div className="truncate max-w-[100px] mx-auto text-[11px]" title={m.project_name}>
-                            {m.project_name.replace(/\.ifc$/i, '')}
-                          </div>
-                        </th>
-                      ))
-                  }
-                </tr>
-                {/* Ligne scores globaux */}
-                {maquettes.length > 0 && (                  <tr className="bg-slate-800 border-b-2 border-slate-600">
-                    <td colSpan={3} className="px-4 py-2 border-r border-slate-700">
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Score de conformité</span>
-                    </td>
-                    {maquettes.map(m => {
-                      const s = scoreFor(m.id);
-                      return (
-                        <td key={m.id} className="text-center px-2 py-2 border-r border-slate-700 last:border-r-0">
-                          <span className={`text-xl font-black ${scoreColor(s)}`}>{s === null ? '—' : `${s}%`}</span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                )}
-              </thead>
-              <tbody>
-                {sections.map(({ section, cats }) => (
-                  <React.Fragment key={section}>
-                    {/* Séparateur de section principal */}
-                    <tr className="bg-slate-900">
-                      <td colSpan={colCount} className="px-4 py-2">
-                        <span className="text-[11px] font-black text-white uppercase tracking-widest">{section}</span>
-                      </td>
-                    </tr>
-                    {cats.map(cat => (
-                      <React.Fragment key={cat.category}>
-                        {/* En-tête sous-catégorie */}
-                        <tr className="bg-blue-600">
-                          <td colSpan={colCount} className="px-4 py-1.5">
-                            <span className="text-[10px] font-bold text-white uppercase tracking-wide">{cat.category}</span>
-                          </td>
-                        </tr>
-                        {cat.items.map((item, ii) => (
-                          <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-blue-50/40 transition-colors`}>                            <td className="px-3 py-2 text-[10px] text-slate-400 font-mono border-r border-slate-100 align-middle whitespace-nowrap">{item.id}</td>
-                            <td className="px-4 py-2 text-slate-700 font-medium border-r border-slate-100 align-middle leading-snug">{item.label}</td>
-                            <td className="px-4 py-2 text-slate-500 italic border-r border-slate-100 align-middle leading-snug text-[11px]">{item.expected}</td>
-                            {maquettes.map(m => (
-                              <td key={m.id} className="px-1.5 py-1.5 border-r border-slate-100 last:border-r-0 align-middle">
-                                <RapportCell
-                                  status={cells[`${item.id}-${m.id}`] ?? ''}
-                                  onChange={v => setCell(item.id, m.id, v)}
-                                />
-                              </td>
-                            ))}                            {maquettes.length === 0 && (
-                              <td className="px-4 py-2 text-slate-300 italic text-center">—</td>
-                            )}
+        <div className="space-y-10">
+          {sections.map(({ section, cats }) => (
+            <div key={section}>
+              {/* Titre de section */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className="h-1 w-6 rounded bg-slate-900" />
+                <h3 className="text-lg font-black text-slate-900 uppercase tracking-widest">{section}</h3>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {cats.map(cat => (
+                  <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {/* En-tête carte */}
+                    <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
+                      <span className="text-sm font-bold text-white">{cat.category}</span>
+                      <div className="flex items-center gap-2">
+                        {maquettes.map(m => {
+                          const s = scoreForCat(cat.items, m.id);
+                          const color = s === null ? 'text-white/50' : s >= 80 ? 'text-emerald-300' : s >= 60 ? 'text-orange-300' : 'text-red-300';
+                          return (
+                            <span key={m.id} className={`text-xs font-black ${color}`} title={m.project_name.replace(/\.ifc$/i, '')}>
+                              {s === null ? '—' : `${s}%`}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Tableau interne */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="text-left px-3 py-2 font-bold text-slate-400 w-12">N°</th>
+                            <th className="text-left px-3 py-2 font-bold text-slate-600 min-w-[180px]">Item de contrôle</th>
+                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[180px]">Attendu</th>
+                            {maquettes.length === 0
+                              ? <th className="text-center px-3 py-2 text-slate-300 italic font-normal">← Chargez des maquettes</th>
+                              : maquettes.map(m => (
+                                  <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[80px]">
+                                    <span className="truncate block max-w-[72px] mx-auto" title={m.project_name}>
+                                      {m.project_name.replace(/\.ifc$/i, '').slice(0, 10)}
+                                    </span>
+                                  </th>
+                                ))
+                            }
                           </tr>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </React.Fragment>
+                        </thead>
+                        <tbody>
+                          {cat.items.map((item, ii) => (
+                            <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/30 transition-colors`}>
+                              <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
+                              <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>
+                              <td className="px-3 py-2 text-slate-400 italic align-middle leading-snug">{item.expected}</td>
+                              {maquettes.map(m => {
+                                const st = cells[`${item.id}-${m.id}`] ?? '';
+                                const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+                                const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
+                                const { bg, label } = statusMap[st];
+                                return (
+                                  <td key={m.id} className="px-1.5 py-1.5 align-middle">
+                                    <button
+                                      onClick={next}
+                                      title="Cliquer pour changer le statut"
+                                      className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}
+                                    >
+                                      {label}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                              {maquettes.length === 0 && (
+                                <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-100 border-t-2 border-slate-300">                  <td className="px-3 py-2 border-r border-slate-200" />
-                  <td className="px-4 py-2 text-xs font-bold text-slate-600 border-r border-slate-200">{totalItems} items de contrôle</td>
-                  <td className="px-4 py-2 border-r border-slate-200" />
-                  {maquettes.map(m => (
-                    <td key={m.id} className="text-center px-2 py-2 border-r border-slate-200 last:border-r-0">
-                      <span className="text-[10px] text-slate-500">
-                        {Object.entries(cells).filter(([k, v]) => k.endsWith(`-${m.id}`) && v).length} / {totalItems} renseignés
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -983,7 +980,36 @@ export default function Dashboard() {
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Maquettes OK</p>
               <p className="text-4xl font-black mt-2 text-emerald-500">{nbOk} <span className="text-sm font-medium text-slate-400 ml-1 italic">validées</span></p>
             </div>
-          </div>
+          </div>          {/* CARTES SIMPLES — MAQUETTES FÉDÉRÉES */}
+          <h3 className="text-xl font-bold mb-6 mt-2">Maquettes Fédérées</h3>
+          {loading ? (
+            <p className="text-slate-400 italic animate-pulse">Chargement depuis Supabase...</p>
+          ) : audits.length === 0 ? (
+            <p className="text-slate-400 italic mb-10">Aucune maquette. Cliquez sur &quot;+ Charger&quot; pour commencer.</p>
+          ) : (
+            <div className="grid grid-cols-4 gap-6 mb-10">
+              {audits.map((a) => {
+                const style = getStyle(a.status);
+                return (
+                  <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className={`p-2 rounded-full ${style.bg}`}>{style.icon}</div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
+                        <button onClick={() => handleView(a.details, a.project_name)} className="text-blue-400 hover:text-blue-600 transition-colors" title="Visualiser"><Eye className="h-4 w-4" /></button>
+                        <button onClick={() => handleDelete(a.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Supprimer"><X className="h-4 w-4" /></button>
+                      </div>
+                    </div>
+                    <h4 className="font-bold text-slate-800">{a.project_name}</h4>
+                    <p className="text-[10px] text-slate-400 mb-2 italic">
+                      {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                    {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* CARTES DÉTAILLÉES PAR MAQUETTE */}
           <MaquettesView audits={audits} loading={loading} onNewAnalysis={() => setShowForm(true)} onView={handleView} onDelete={handleDelete} />
