@@ -1298,18 +1298,9 @@ export default function Dashboard() {
                       </div>
                     );
                   })}
-                </div>
-              )}              {/* Grille de contrôle qualité par chapitre */}
-              <MaquettesView
-                audits={audits}
-                loading={loading}
-                onNewAnalysis={() => setShowForm(true)}
-                onView={handleView}
-                onDelete={handleDelete}
-                chapitresOnly
-              />
+                </div>              )}
             </>
-          ) : activeTab === 'Rapports' ? (
+          ) : activeTab === 'Rapports' ?(
             <RapportsView audits={audits} loading={loading} />
           ) : (
             <>
@@ -1370,11 +1361,7 @@ export default function Dashboard() {
                 );
               })}
             </div>
-          )}
-
-          {/* CARTES DÉTAILLÉES PAR MAQUETTE */}
-          <MaquettesView audits={audits} loading={loading} onNewAnalysis={() => setShowForm(true)} onView={handleView} onDelete={handleDelete} />
-            </>
+          )}            </>
           )}
         </div>
       </main>{/* MODALE UPLOAD */}
