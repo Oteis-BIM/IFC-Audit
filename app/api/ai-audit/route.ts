@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 // Taille max du texte IFC extrait envoyé à l'IA (pour rester dans les limites de tokens)
 const MAX_IFC_CHARS = 18000;
+
+// NOTE: openai client est instancié DANS le handler POST pour éviter les erreurs de build
+// quand OPENAI_API_KEY n'est pas définie au moment du build Vercel.
 
 async function refreshAccessToken(refreshToken: string) {
   const res = await fetch('https://api.box.com/oauth2/token', {
@@ -51,10 +52,12 @@ export async function POST(req: NextRequest) {
     const { fileId, fileName, discipline } = await req.json();
     if (!fileId || !fileName) {
       return NextResponse.json({ error: 'fileId et fileName requis' }, { status: 400 });
-    }
-    if (!process.env.OPENAI_API_KEY) {
+    }    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: 'OPENAI_API_KEY non configurée' }, { status: 500 });
     }
+
+    // Instanciation ici pour éviter un crash au build si la clé est absente
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     // ── Récupérer le fichier IFC depuis Box ──────────────────────────────────
     const cookieStore = await cookies();
