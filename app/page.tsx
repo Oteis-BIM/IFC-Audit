@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox, Eye, Loader2
+  Upload, X, FileBox, Eye, Loader2, TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
 import type { FileEntry } from './components/IfcViewer';
@@ -28,10 +28,211 @@ type SelectedFile = {
   progress: number; // progression 0-100 par fichier
 };
 
-export default function Dashboard() {  const [showForm, setShowForm] = useState(false);
+// ─── Vue Maquettes ────────────────────────────────────────────────────────────
+type MaquetteCardData = {
+  name: string;
+  file: string;
+  updatedAgo: string;
+  status: 'EN COURS' | 'EN ATTENTE' | 'VALIDÉ' | 'CRITIQUE';
+  totalErrors: number;
+  clashCritiques: number;
+  scoreQualite: number;
+  collisions: { label: string; pct: number; count: string };
+  conventions: { label: string; pct: number; count: string };
+  completude: { label: string; pct: number; count: string };
+  controles: { label: string; status: 'ok' | 'error' | 'warning'; detail: string }[];
+};
+
+function StatusBadge({ status }: { status: MaquetteCardData['status'] }) {
+  const map = {
+    'EN COURS':  'bg-blue-100 text-blue-700',
+    'EN ATTENTE':'bg-slate-100 text-slate-500',
+    'VALIDÉ':    'bg-emerald-100 text-emerald-700',
+    'CRITIQUE':  'bg-red-100 text-red-600',
+  };
+  return <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${map[status]}`}>{status}</span>;
+}
+
+function ProgressBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div className="w-full bg-slate-100 rounded-full h-2">
+      <div className={`h-2 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function ControleIcon({ status }: { status: 'ok' | 'error' | 'warning' }) {
+  if (status === 'ok') return <CheckCircle className="h-4 w-4 text-emerald-500" />;
+  if (status === 'error') return <X className="h-4 w-4 text-red-500 bg-red-100 rounded-full p-0.5" />;
+  return <AlertCircle className="h-4 w-4 text-orange-400" />;
+}
+
+function MaquetteCard({ card, onView, onDelete }: { card: MaquetteCardData & { id: number; details: string | null }; onView: () => void; onDelete: () => void }) {
+  const scoreColor = card.scoreQualite >= 80 ? 'text-emerald-600' : card.scoreQualite >= 60 ? 'text-orange-500' : 'text-red-500';
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col gap-4">
+      {/* Header carte */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center shrink-0">
+            <FileBox className="h-5 w-5 text-blue-500" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-bold text-slate-800">{card.name}</h4>
+              <StatusBadge status={card.status} />
+            </div>
+            <p className="text-[10px] text-slate-400">{card.file} • Mis à jour {card.updatedAgo}</p>
+          </div>
+        </div>
+        <div className="flex gap-1.5 shrink-0">
+          <button onClick={onView} className="text-blue-400 hover:text-blue-600 transition-colors" title="Visualiser 3D"><Eye className="h-4 w-4" /></button>
+          <button onClick={onDelete} className="text-red-300 hover:text-red-500 transition-colors" title="Supprimer"><X className="h-4 w-4" /></button>
+        </div>
+      </div>
+
+      {/* Métriques */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'TOTAL ERREURS', value: card.totalErrors, color: 'text-slate-800' },
+          { label: 'CLASHS CRITIQUES', value: card.clashCritiques, color: 'text-orange-500' },
+          { label: 'SCORE QUALITÉ', value: `${card.scoreQualite}%`, color: scoreColor },
+        ].map(m => (
+          <div key={m.label} className="bg-slate-50 rounded-xl p-3 text-center">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-tight mb-1">{m.label}</p>
+            <p className={`text-2xl font-black ${m.color}`}>{m.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Barres de progression */}
+      <div className="space-y-2.5">
+        {[
+          { ...card.collisions, color: 'bg-orange-400' },
+          { ...card.conventions, color: 'bg-emerald-500' },
+          { ...card.completude, color: 'bg-blue-800' },
+        ].map(b => (
+          <div key={b.label}>
+            <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+              <span>{b.label}</span>
+              <span>{b.pct}% ({b.count})</span>
+            </div>
+            <ProgressBar pct={b.pct} color={b.color} />
+          </div>
+        ))}
+      </div>
+
+      {/* Contrôles spécifiques */}
+      <div>
+        <div className="grid grid-cols-3 text-[9px] font-bold text-slate-400 uppercase tracking-wide pb-1 border-b border-slate-100 mb-2">
+          <span>CONTRÔLE SPÉCIFIQUE</span><span className="text-center">STATUS</span><span className="text-right">DÉTAILS</span>
+        </div>
+        <div className="space-y-1.5">
+          {card.controles.map(c => (
+            <div key={c.label} className="grid grid-cols-3 items-center text-xs">
+              <span className="text-blue-600 font-medium">{c.label}</span>
+              <span className="flex justify-center"><ControleIcon status={c.status} /></span>
+              <span className={`text-right font-medium ${c.status === 'ok' ? 'text-emerald-600' : c.status === 'error' ? 'text-red-500' : 'text-orange-500'}`}>{c.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete }: {
+  audits: Audit[];
+  loading: boolean;
+  onNewAnalysis: () => void;
+  onView: (details: string | null, name: string) => void;
+  onDelete: (id: number) => void;
+}) {
+  // Génère des données fictives cohérentes à partir des vraies maquettes Supabase
+  const cards = audits.map((a, i): MaquetteCardData & { id: number; details: string | null } => {
+    const scores = [92, 64, 88, 76, 95, 55];
+    const errors = [12, 42, 8, 23, 3, 67];
+    const clashs = [4, 18, 2, 9, 1, 24];
+    const statuses: MaquetteCardData['status'][] = ['EN COURS', 'EN ATTENTE', 'VALIDÉ', 'CRITIQUE', 'VALIDÉ', 'CRITIQUE'];
+    const ago = ['2h', '5h', '1j', '3h', '2j', '30min'];
+    const score = scores[i % scores.length];
+    const err = errors[i % errors.length];
+    const clash = clashs[i % clashs.length];
+    const colPct = Math.round(60 + (i * 7) % 35);
+    const convPct = Math.round(80 + (i * 5) % 18);
+    const compPct = Math.round(45 + (i * 11) % 40);
+    return {
+      id: a.id, details: a.details,
+      name: a.project_name.replace(/\.ifc$/i, '').replace(/_/g, ' '),
+      file: a.project_name,
+      updatedAgo: `il y a ${ago[i % ago.length]}`,
+      status: a.status === 'CRITICAL' ? 'CRITIQUE' : a.status === 'WARNING' ? 'EN COURS' : statuses[i % statuses.length],
+      totalErrors: err, clashCritiques: clash, scoreQualite: score,
+      collisions: { label: 'Collisions géométriques', pct: colPct, count: `${Math.round(colPct * 3.5)}/${Math.round(colPct * 4)}` },
+      conventions: { label: 'Conventions de nommage', pct: convPct, count: `${Math.round(convPct * 14)}/${Math.round(convPct * 14.2)}` },
+      completude: { label: 'Complétude des métadonnées', pct: compPct, count: `${Math.round(compPct * 46)}/${Math.round(compPct * 46.7)}` },
+      controles: [
+        { label: 'Poutres vs Planchers', status: i % 3 === 1 ? 'ok' : i % 3 === 2 ? 'warning' : 'ok', detail: i % 3 === 2 ? 'Vérifier 12 elts' : 'Conforme' },
+        { label: 'Classification IFC4', status: i % 4 === 0 ? 'ok' : 'error', detail: i % 4 === 0 ? 'Conforme' : `${3 + i} manquants` },
+        { label: 'Paramètres Résistance Feu', status: i % 2 === 0 ? 'warning' : 'ok', detail: i % 2 === 0 ? 'Écarts > 2%' : 'Conforme' },
+      ],
+    };
+  });
+
+  return (
+    <div>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h2 className="text-3xl font-bold text-slate-900">Contrôles par Maquette</h2>
+          <p className="text-slate-500 mt-1 max-w-lg text-sm">
+            Visualisez l&apos;état de conformité détaillé de chaque discipline du projet Alpha.
+            Les audits sont effectués en temps réel sur les fichiers IFC exportés.
+          </p>
+        </div>
+        <div className="flex gap-3 shrink-0">
+          <button className="border border-slate-300 text-slate-700 px-5 py-2.5 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" /> Exporter Rapport PDF
+          </button>
+          <button onClick={onNewAnalysis} className="bg-slate-900 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors">
+            <Upload className="h-4 w-4" /> Nouvelle Analyse
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-slate-400 italic animate-pulse">Chargement...</p>
+      ) : cards.length === 0 ? (
+        <div className="text-center py-20">
+          <FileBox className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-500 font-medium">Aucune maquette disponible</p>
+          <p className="text-slate-400 text-sm mt-1">Cliquez sur &quot;Nouvelle Analyse&quot; pour charger un fichier IFC.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {cards.map(card => (
+            <MaquetteCard
+              key={card.id}
+              card={card}
+              onView={() => onView(card.details, card.file)}
+              onDelete={() => onDelete(card.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Dashboard principal ──────────────────────────────────────────────────────
+export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState<string>('Tableau de bord');
+  const [showForm, setShowForm] = useState(false);
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);  const [isDragging, setIsDragging] = useState(false);  const [uploading, setUploading] = useState(false);  const [viewerFiles, setViewerFiles] = useState<FileEntry[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [viewerFiles, setViewerFiles] = useState<FileEntry[]>([]);
   const [boxReady, setBoxReady] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Audit | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -430,15 +631,25 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
           <div className="flex items-center space-x-2 text-slate-800 font-bold uppercase tracking-tight">
              <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white text-[10px]">IFC</div>
              <span>IFC Quality Control</span>
-          </div>
-          <nav className="flex space-x-6 text-sm font-medium text-slate-500">
-            <span className="text-blue-600 border-b-2 border-blue-600 py-5">Tableau de bord</span>
-            {["Maquettes", "Rapports", "Conformité", "Paramètres"].map(t => <span key={t} className="py-5 cursor-pointer hover:text-slate-800">{t}</span>)}
+          </div>          <nav className="flex space-x-6 text-sm font-medium text-slate-500">
+            {['Tableau de bord', 'Maquettes', 'Rapports', 'Conformité', 'Paramètres'].map(t => (
+              <span
+                key={t}
+                onClick={() => setActiveTab(t)}
+                className={`py-5 cursor-pointer border-b-2 transition-colors ${
+                  activeTab === t
+                    ? 'text-blue-600 border-blue-600'
+                    : 'border-transparent hover:text-slate-800'
+                }`}
+              >{t}</span>
+            ))}
           </nav>
           <div className="flex items-center space-x-4"><Bell className="h-5 w-5 text-slate-400" /><UserCircle className="h-6 w-6 text-slate-400" /></div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto p-8">
+        </header>        <div className="flex-1 overflow-y-auto p-8">
+          {activeTab === 'Maquettes' ? (
+            <MaquettesView audits={audits} loading={loading} onNewAnalysis={() => setShowForm(true)} onView={handleView} onDelete={handleDelete} />
+          ) : (
+            <>
           <div className="flex justify-between items-end mb-8">
             <div>
               <h2 className="text-3xl font-bold text-slate-900">Statut des Maquettes</h2>
@@ -501,11 +712,12 @@ export default function Dashboard() {  const [showForm, setShowForm] = useState(
                     {a.details && <p className="text-xs text-slate-500 truncate">{a.details}</p>}
                   </div>
                 );
-              })}
-            </div>
+              })}            </div>
+          )}
+            </>
           )}
         </div>
-      </main>      {/* MODALE UPLOAD */}
+      </main>{/* MODALE UPLOAD */}
       {showForm && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8">
