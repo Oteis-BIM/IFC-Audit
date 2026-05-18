@@ -30,76 +30,76 @@ type SelectedFile = {
 
 // ─── Vue Rapports ─────────────────────────────────────────────────────────────
 
-const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: string; label: string }[] }[] = [
+const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: string; label: string; expected: string }[] }[] = [
   // ── SECTION B : FICHIER IFC ─────────────────────────────────────────────────
   {
     section: "B — FICHIER IFC",
     category: "B1 — FORMAT DE FICHIER",
     items: [
-      { id: "B1.1", label: "Nom du fichier" },
-      { id: "B1.2", label: "Format IFC 2°3" },
-      { id: "B1.3", label: "Taille du fichier" },
+      { id: "B1.1", label: "Nom du fichier", expected: "Conforme à la convention de nommage OTEIS (code projet_discipline_phase)" },
+      { id: "B1.2", label: "Format IFC 2°3", expected: "Export IFC 2x3 (IFC2X3)" },
+      { id: "B1.3", label: "Taille du fichier", expected: "< 500 Mo par fichier IFC" },
     ],
   },
   {
     section: "B — FICHIER IFC",
     category: "B2 — ORGANISATION DU FICHIER",
     items: [
-      { id: "B2.1", label: "Architecture" },
-      { id: "B2.2", label: "Emplacement" },
+      { id: "B2.1", label: "Architecture", expected: "Fichier IFC structuré par discipline (architecture, structure, MEP…)" },
+      { id: "B2.2", label: "Emplacement", expected: "Déposé dans le répertoire BIM défini dans la convention" },
     ],
   },
   {
     section: "B — FICHIER IFC",
     category: "B3 — ATTRIBUTS PROJET (IFcProject)",
     items: [
-      { id: "B3.1", label: "Localisation" },
-      { id: "B3.2", label: "Code Phases" },
-      { id: "B3.3", label: "Description (Desciption)" },
-      { id: "B3.4", label: "Phase (Phase)" },
+      { id: "B3.1", label: "Localisation", expected: "Champ renseigné avec l'adresse du projet" },
+      { id: "B3.2", label: "Code Phases", expected: "Code phase conforme (EXE, PRO, DCE…)" },
+      { id: "B3.3", label: "Description (Description)", expected: "Description explicite du contenu du fichier" },
+      { id: "B3.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
     ],
   },
   {
     section: "B — FICHIER IFC",
     category: "B4 — ATTRIBUTS SITE (IfcSite)",
     items: [
-      { id: "B4.1", label: "Nom (Name)" },
-      { id: "B4.2", label: "Désignation (Description)" },
-      { id: "B4.3", label: "Coordonnées XYZ (Latitude/Longitude)" },
-      { id: "B4.4", label: "Elevation (Élévation Z)" },
+      { id: "B4.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
+      { id: "B4.2", label: "Désignation (Description)", expected: "Description du site renseignée" },
+      { id: "B4.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées géographiques renseignées (RGF93 / Lambert 93)" },
+      { id: "B4.4", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
     ],
   },
   {
     section: "B — FICHIER IFC",
     category: "B5 — ATTRIBUTS IFC (IfcBuilding)",
     items: [
-      { id: "B5.1", label: "Nom (Name)" },
-      { id: "B5.2", label: "Désignation (Description)" },
-      { id: "B5.3", label: "Coordonnées XYZ (Latitude/Longitude)" },
-      { id: "B5.4", label: "Elevation (Élévation Z)" },
+      { id: "B5.1", label: "Nom (Name)", expected: "Nom du bâtiment renseigné" },
+      { id: "B5.2", label: "Désignation (Description)", expected: "Description du bâtiment renseignée" },
+      { id: "B5.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées cohérentes avec IfcSite" },
+      { id: "B5.4", label: "Elevation (Élévation Z)", expected: "Élévation de référence du bâtiment renseignée (NGF)" },
     ],
   },
   {
     section: "B — FICHIER IFC",
     category: "B6 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
     items: [
-      { id: "B6.1", label: "Adressage" },
-      { id: "B6.2", label: "Description (Description)" },
-      { id: "B6.3", label: "Élévation (Élévation)" },
+      { id: "B6.1", label: "Adressage", expected: "Nommage conforme à la convention (RDC, R+1…)" },
+      { id: "B6.2", label: "Description (Description)", expected: "Description du niveau renseignée" },
+      { id: "B6.3", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
     ],
   },
   {
     section: "B — FICHIER IFC",
     category: "B7 — COHÉRENCE / CONFORMITÉ",
     items: [
-      { id: "B7.1", label: "Vérification visuelle de l'assemblage des modèles (Cohérence générale des maquettes assemblées)" },
-      { id: "B7.2", label: "Contrôle visuel de la modélisation - Respect des règles de modélisation à maîtriser" },
-      { id: "B7.3", label: "Rattachement / Modélisation des objets aux Bons niveaux" },
-      { id: "B7.4", label: "Conformité maquette et Maquette architecture" },
-      { id: "B7.5", label: "Contrôle de la connexion des objets" },
-      { id: "B7.6", label: "Contrôle des conflits internes" },
-      { id: "B7.7", label: "Contrôle des conflits externes" },
-      { id: "B7.8", label: "Contrôle des sustènes" },
+      { id: "B7.1", label: "Vérification visuelle de l'assemblage des modèles (Cohérence générale des maquettes assemblées)", expected: "Modèles correctement positionnés et superposés sans décalage" },
+      { id: "B7.2", label: "Contrôle visuel de la modélisation - Respect des règles de modélisation à maîtriser", expected: "Respect des règles de modélisation OTEIS (éléments non doublés, pas de géométrie parasite)" },
+      { id: "B7.3", label: "Rattachement / Modélisation des objets aux Bons niveaux", expected: "Chaque objet est rattaché au niveau auquel il appartient" },
+      { id: "B7.4", label: "Conformité maquette et Maquette architecture", expected: "Cohérence géométrique avec la maquette architecture de référence" },
+      { id: "B7.5", label: "Contrôle de la connexion des objets", expected: "Objets correctement connectés (murs, dalles, poteaux…)" },
+      { id: "B7.6", label: "Contrôle des conflits internes", expected: "0 conflit interne à la maquette (clash détection)" },
+      { id: "B7.7", label: "Contrôle des conflits externes", expected: "0 conflit critique inter-maquettes (clash détection fédérée)" },
+      { id: "B7.8", label: "Contrôle des sustènes", expected: "Systèmes de sustentation correctement modélisés et rattachés" },
     ],
   },
   // ── SECTION C : FAMILLES ────────────────────────────────────────────────────
@@ -107,34 +107,34 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
     section: "C — FAMILLES",
     category: "C1 — IFCBUILDINGELEMENT PROXY",
     items: [
-      { id: "C1.1", label: "Utilisation / limite des IfcBuildingElementProxy (aucun exception acceptée)" },
+      { id: "C1.1", label: "Utilisation / limite des IfcBuildingElementProxy (aucun exception acceptée)", expected: "0 objet IfcBuildingElementProxy dans le fichier" },
     ],
   },
   {
     section: "C — FAMILLES",
     category: "C2 — PIÈCES",
     items: [
-      { id: "C2.1", label: "Classification IFC" },
-      { id: "C2.2", label: "Données non courantes" },
-      { id: "C2.3", label: "Nommage des pièces" },
-      { id: "C2.4", label: "Intersection de pièces" },
-      { id: "C2.5", label: "Pset_IFC" },
-      { id: "C2.6", label: "Propriétés" },
+      { id: "C2.1", label: "Classification IFC", expected: "Pièces classifiées en IfcSpace avec type correct" },
+      { id: "C2.2", label: "Données non courantes", expected: "Pas de données redondantes ou incohérentes sur les pièces" },
+      { id: "C2.3", label: "Nommage des pièces", expected: "Nommage conforme (code fonction + numéro selon convention)" },
+      { id: "C2.4", label: "Intersection de pièces", expected: "0 intersection / chevauchement entre pièces" },
+      { id: "C2.5", label: "Pset_IFC", expected: "Pset_SpaceCommon renseigné (IsExternal, GrossFloorArea…)" },
+      { id: "C2.6", label: "Propriétés", expected: "Propriétés métier renseignées (surface, usage, programme)" },
     ],
   },
   {
     section: "C — FAMILLES",
     category: "C3 — FAMILLES OBJET 1 (Ex : MUR3)",
     items: [
-      { id: "C3.1", label: "Dénomination IFC" },
-      { id: "C3.2", label: "Niveau de détail" },
-      { id: "C3.3", label: "Combinaison sur l'instance" },
-      { id: "C3.4", label: "Dimensions" },
-      { id: "C3.5", label: "Nom des objets" },
-      { id: "C3.6", label: "Matériaux" },
-      { id: "C3.7", label: "Pset_app" },
-      { id: "C3.8", label: "Prop élec" },
-      { id: "C3.9", label: "Prop méca" },
+      { id: "C3.1", label: "Dénomination IFC", expected: "Type IFC correct (IfcWall, IfcColumn, IfcBeam…)" },
+      { id: "C3.2", label: "Niveau de détail", expected: "LOD conforme à la phase (LOD 200 minimum en PRO)" },
+      { id: "C3.3", label: "Combinaison sur l'instance", expected: "Pas de combinaison de familles non prévue par la convention" },
+      { id: "C3.4", label: "Dimensions", expected: "Dimensions paramétriques correctement renseignées" },
+      { id: "C3.5", label: "Nom des objets", expected: "Nommage conforme à la convention OTEIS" },
+      { id: "C3.6", label: "Matériaux", expected: "Matériaux renseignés et conformes à la charte matériaux" },
+      { id: "C3.7", label: "Pset_app", expected: "Pset applicatif métier renseigné" },
+      { id: "C3.8", label: "Prop élec", expected: "Propriétés électriques renseignées (si applicable)" },
+      { id: "C3.9", label: "Prop méca", expected: "Propriétés mécaniques renseignées (si applicable)" },
     ],
   },
 ];
@@ -191,7 +191,7 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
     return acc;
   }, []);
 
-  const colCount = 3 + maquettes.length;
+  const colCount = 4 + maquettes.length;
 
   return (
     <div>
@@ -222,10 +222,10 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
-                {/* Ligne titres colonnes */}
-                <tr className="bg-slate-900 text-white">
+                {/* Ligne titres colonnes */}                <tr className="bg-slate-900 text-white">
                   <th className="text-left px-3 py-3 font-bold w-16 border-r border-slate-700 whitespace-nowrap">N°</th>
                   <th className="text-left px-4 py-3 font-bold min-w-[320px] border-r border-slate-700">Objet / Item de contrôle</th>
+                  <th className="text-left px-4 py-3 font-bold min-w-[240px] border-r border-slate-700 text-blue-300">Attendu</th>
                   {maquettes.length === 0
                     ? <th className="text-center px-4 py-3 font-bold text-slate-400 italic">← Chargez des maquettes</th>
                     : maquettes.map(m => (
@@ -238,9 +238,8 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
                   }
                 </tr>
                 {/* Ligne scores globaux */}
-                {maquettes.length > 0 && (
-                  <tr className="bg-slate-800 border-b-2 border-slate-600">
-                    <td colSpan={2} className="px-4 py-2 border-r border-slate-700">
+                {maquettes.length > 0 && (                  <tr className="bg-slate-800 border-b-2 border-slate-600">
+                    <td colSpan={3} className="px-4 py-2 border-r border-slate-700">
                       <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Score de conformité</span>
                     </td>
                     {maquettes.map(m => {
@@ -272,9 +271,9 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
                           </td>
                         </tr>
                         {cat.items.map((item, ii) => (
-                          <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-blue-50/40 transition-colors`}>
-                            <td className="px-3 py-2 text-[10px] text-slate-400 font-mono border-r border-slate-100 align-middle whitespace-nowrap">{item.id}</td>
+                          <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-blue-50/40 transition-colors`}>                            <td className="px-3 py-2 text-[10px] text-slate-400 font-mono border-r border-slate-100 align-middle whitespace-nowrap">{item.id}</td>
                             <td className="px-4 py-2 text-slate-700 font-medium border-r border-slate-100 align-middle leading-snug">{item.label}</td>
+                            <td className="px-4 py-2 text-slate-500 italic border-r border-slate-100 align-middle leading-snug text-[11px]">{item.expected}</td>
                             {maquettes.map(m => (
                               <td key={m.id} className="px-1.5 py-1.5 border-r border-slate-100 last:border-r-0 align-middle">
                                 <RapportCell
@@ -282,8 +281,7 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
                                   onChange={v => setCell(item.id, m.id, v)}
                                 />
                               </td>
-                            ))}
-                            {maquettes.length === 0 && (
+                            ))}                            {maquettes.length === 0 && (
                               <td className="px-4 py-2 text-slate-300 italic text-center">—</td>
                             )}
                           </tr>
@@ -294,9 +292,9 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-slate-100 border-t-2 border-slate-300">
-                  <td className="px-3 py-2 border-r border-slate-200" />
+                <tr className="bg-slate-100 border-t-2 border-slate-300">                  <td className="px-3 py-2 border-r border-slate-200" />
                   <td className="px-4 py-2 text-xs font-bold text-slate-600 border-r border-slate-200">{totalItems} items de contrôle</td>
+                  <td className="px-4 py-2 border-r border-slate-200" />
                   {maquettes.map(m => (
                     <td key={m.id} className="text-center px-2 py-2 border-r border-slate-200 last:border-r-0">
                       <span className="text-[10px] text-slate-500">
