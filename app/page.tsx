@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox, Eye, Loader2, TrendingUp, TrendingDown, Minus
+  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, FileSpreadsheet
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
 import type { FileEntry } from './components/IfcViewer';
@@ -27,6 +27,235 @@ type SelectedFile = {
   error: string | null;
   progress: number; // progression 0-100 par fichier
 };
+
+// ─── Vue Rapports ─────────────────────────────────────────────────────────────
+
+const RAPPORT_CATEGORIES: { category: string; items: { id: string; label: string; poids: number }[] }[] = [
+  {
+    category: "1 — Généralités fichier IFC",
+    items: [
+      { id: "1.1", label: "Version IFC (IFC2x3 ou IFC4)", poids: 1 },
+      { id: "1.2", label: "Encodage du fichier (UTF-8)", poids: 1 },
+      { id: "1.3", label: "Présence de l'en-tête FILE_DESCRIPTION", poids: 1 },
+      { id: "1.4", label: "Présence de IfcProject", poids: 2 },
+      { id: "1.5", label: "Unités de mesure définies (IfcUnitAssignment)", poids: 2 },
+    ],
+  },
+  {
+    category: "2 — Structure spatiale",
+    items: [
+      { id: "2.1", label: "Présence IfcSite", poids: 2 },
+      { id: "2.2", label: "Présence IfcBuilding", poids: 2 },
+      { id: "2.3", label: "Présence IfcBuildingStorey (au moins 1 niveau)", poids: 2 },
+      { id: "2.4", label: "Cohérence hiérarchie spatiale (Site > Bâtiment > Niveau)", poids: 3 },
+      { id: "2.5", label: "Tous les éléments rattachés à un niveau", poids: 3 },
+    ],
+  },
+  {
+    category: "3 — Géométrie",
+    items: [
+      { id: "3.1", label: "Absence de géométrie nulle ou dégénérée", poids: 3 },
+      { id: "3.2", label: "Cohérence des systèmes de coordonnées (georéférencement)", poids: 4 },
+      { id: "3.3", label: "Absence de solides ouverts (faces manquantes)", poids: 3 },
+      { id: "3.4", label: "Collisions géométriques tolérables (< seuil projet)", poids: 4 },
+      { id: "3.5", label: "Éléments dupliqués absents", poids: 2 },
+    ],
+  },
+  {
+    category: "4 — Classification & Nommage",
+    items: [
+      { id: "4.1", label: "Convention de nommage IfcType respectée", poids: 3 },
+      { id: "4.2", label: "Classification IFC4 / Uniclass / OmniClass affectée", poids: 3 },
+      { id: "4.3", label: "Noms des niveaux cohérents inter-maquettes", poids: 3 },
+      { id: "4.4", label: "Absence de noms génériques (\"Basic Wall\", \"Floor\", etc.)", poids: 2 },
+    ],
+  },
+  {
+    category: "5 — Métadonnées & Propriétés",
+    items: [
+      { id: "5.1", label: "IfcPropertySet Pset_BuildingCommon renseigné", poids: 2 },
+      { id: "5.2", label: "Paramètres de résistance feu présents (éléments porteurs)", poids: 3 },
+      { id: "5.3", label: "Matériaux associés à tous les éléments structurels", poids: 3 },
+      { id: "5.4", label: "Complétude des métadonnées > seuil (ex. 80%)", poids: 4 },
+      { id: "5.5", label: "Cohérence des valeurs entre maquettes (surfaces, hauteurs)", poids: 3 },
+    ],
+  },
+  {
+    category: "6 — Accessibilité & Réglementation",
+    items: [
+      { id: "6.1", label: "Largeurs de passage PMR conformes (≥ 0,90 m)", poids: 3 },
+      { id: "6.2", label: "Hauteur sous plafond conforme (≥ 2,50 m zones habitables)", poids: 3 },
+      { id: "6.3", label: "Surfaces habitables renseignées et cohérentes", poids: 2 },
+      { id: "6.4", label: "Escaliers / rampes conformes (pente, giron, contremarche)", poids: 2 },
+    ],
+  },
+];
+
+type CellStatus = 'ok' | 'warning' | 'error' | 'na' | '';
+
+function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: CellStatus) => void }) {
+  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+  const next = () => onChange(cycle[(cycle.indexOf(status) + 1) % cycle.length]);
+  const map: Record<CellStatus, { bg: string; label: string }> = {
+    ok:      { bg: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200', label: '✓' },
+    warning: { bg: 'bg-orange-100 text-orange-600 hover:bg-orange-200',   label: '⚠' },
+    error:   { bg: 'bg-red-100 text-red-600 hover:bg-red-200',             label: '✗' },
+    na:      { bg: 'bg-slate-100 text-slate-400 hover:bg-slate-200',       label: 'N/A' },
+    '':      { bg: 'bg-white text-slate-300 hover:bg-slate-50',            label: '—' },
+  };
+  const { bg, label } = map[status];
+  return (
+    <button
+      onClick={next}
+      title="Cliquer pour changer le statut"
+      className={`w-full h-8 rounded text-xs font-bold transition-colors ${bg}`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
+  const maquettes = audits.slice(0, 6); // max 6 colonnes pour lisibilité
+  const totalItems = RAPPORT_CATEGORIES.reduce((s, c) => s + c.items.length, 0);
+
+  // État local du tableau : key = `${itemId}-${maquetteId}`
+  const [cells, setCells] = useState<Record<string, CellStatus>>({});
+  const setCell = (itemId: string, maqId: number, val: CellStatus) =>
+    setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
+
+  // Score par maquette (% de cellules "ok" parmi les renseignées)
+  const scoreFor = (maqId: number) => {
+    let ok = 0, total = 0;
+    RAPPORT_CATEGORIES.forEach(cat => cat.items.forEach(item => {
+      const v = cells[`${item.id}-${maqId}`];
+      if (v) { total++; if (v === 'ok') ok++; }
+    }));
+    return total === 0 ? null : Math.round((ok / total) * 100);
+  };
+
+  const scoreColor = (s: number | null) =>
+    s === null ? 'text-slate-400' : s >= 80 ? 'text-emerald-600' : s >= 60 ? 'text-orange-500' : 'text-red-500';
+
+  return (
+    <div>
+      {/* En-tête */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-3xl font-bold text-slate-900">Rapport de Contrôle</h2>
+          <p className="text-slate-500 mt-1 text-sm">
+            Grille d&apos;audit par item de contrôle — une colonne par maquette.
+            Cliquez sur une cellule pour renseigner le statut.
+          </p>
+        </div>
+        <div className="flex gap-3 shrink-0">
+          <div className="flex items-center gap-3 text-xs text-slate-400 bg-slate-50 rounded-xl px-4 py-2 border border-slate-200">
+            <span className="flex items-center gap-1"><span className="w-4 h-4 bg-emerald-100 text-emerald-700 rounded flex items-center justify-center font-bold text-[10px]">✓</span> Conforme</span>
+            <span className="flex items-center gap-1"><span className="w-4 h-4 bg-orange-100 text-orange-600 rounded flex items-center justify-center font-bold text-[10px]">⚠</span> Écart</span>
+            <span className="flex items-center gap-1"><span className="w-4 h-4 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>
+            <span className="flex items-center gap-1"><span className="w-4 h-4 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[10px]">N/A</span> Non applicable</span>
+          </div>
+          <button className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2">
+            <Download className="h-4 w-4" /> Exporter CSV
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-slate-400 italic animate-pulse">Chargement...</p>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {/* En-tête tableau */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-900 text-white">
+                  <th className="text-left px-4 py-3 font-bold w-8 border-r border-slate-700">#</th>
+                  <th className="text-left px-4 py-3 font-bold min-w-[320px] border-r border-slate-700">Item de contrôle</th>
+                  <th className="text-center px-2 py-3 font-bold w-14 border-r border-slate-700">Poids</th>
+                  {maquettes.length === 0 ? (
+                    <th className="text-center px-4 py-3 font-bold text-slate-400 italic">Aucune maquette</th>
+                  ) : maquettes.map(m => (
+                    <th key={m.id} className="text-center px-2 py-3 font-bold min-w-[110px] border-r border-slate-700 last:border-r-0">
+                      <div className="truncate max-w-[100px] mx-auto" title={m.project_name}>{m.project_name.replace(/\.ifc$/i, '')}</div>
+                    </th>
+                  ))}
+                </tr>
+                {/* Ligne scores */}
+                {maquettes.length > 0 && (
+                  <tr className="bg-slate-800 text-white border-b-2 border-slate-600">
+                    <td className="px-4 py-2 border-r border-slate-700" colSpan={2}>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Score global</span>
+                    </td>
+                    <td className="border-r border-slate-700" />
+                    {maquettes.map(m => {
+                      const s = scoreFor(m.id);
+                      return (
+                        <td key={m.id} className="text-center px-2 py-2 border-r border-slate-700 last:border-r-0">
+                          <span className={`text-lg font-black ${scoreColor(s)}`}>
+                            {s === null ? '—' : `${s}%`}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {RAPPORT_CATEGORIES.map((cat, ci) => (
+                  <React.Fragment key={cat.category}>
+                    {/* Ligne catégorie */}
+                    <tr className="bg-blue-50 border-t-2 border-blue-100">
+                      <td colSpan={3 + maquettes.length} className="px-4 py-2">
+                        <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">{cat.category}</span>
+                      </td>
+                    </tr>
+                    {/* Lignes items */}
+                    {cat.items.map((item, ii) => (
+                      <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/30 transition-colors`}>
+                        <td className="px-4 py-2 text-[10px] text-slate-400 font-mono border-r border-slate-100 align-middle">{item.id}</td>
+                        <td className="px-4 py-2 text-slate-700 font-medium border-r border-slate-100 align-middle leading-snug">{item.label}</td>
+                        <td className="text-center px-2 py-2 border-r border-slate-100 align-middle">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-600 font-bold text-[10px]">{item.poids}</span>
+                        </td>
+                        {maquettes.map(m => (
+                          <td key={m.id} className="px-2 py-1.5 border-r border-slate-100 last:border-r-0 align-middle">
+                            <RapportCell
+                              status={cells[`${item.id}-${m.id}`] ?? ''}
+                              onChange={v => setCell(item.id, m.id, v)}
+                            />
+                          </td>
+                        ))}
+                        {maquettes.length === 0 && (
+                          <td className="px-4 py-2 text-slate-300 italic text-center">Ajoutez des maquettes</td>
+                        )}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </tbody>
+              {/* Pied : total items */}
+              <tfoot>
+                <tr className="bg-slate-100 border-t-2 border-slate-300">
+                  <td className="px-4 py-2 border-r border-slate-200" />
+                  <td className="px-4 py-2 text-xs font-bold text-slate-600 border-r border-slate-200">{totalItems} items de contrôle</td>
+                  <td className="border-r border-slate-200" />
+                  {maquettes.map(m => (
+                    <td key={m.id} className="text-center px-2 py-2 border-r border-slate-200 last:border-r-0">
+                      <span className="text-[10px] text-slate-500">
+                        {Object.entries(cells).filter(([k, v]) => k.endsWith(`-${m.id}`) && v !== '').length} / {totalItems} renseignés
+                      </span>
+                    </td>
+                  ))}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Vue Maquettes ────────────────────────────────────────────────────────────
 type MaquetteCardData = {
@@ -645,9 +874,10 @@ export default function Dashboard() {
             ))}
           </nav>
           <div className="flex items-center space-x-4"><Bell className="h-5 w-5 text-slate-400" /><UserCircle className="h-6 w-6 text-slate-400" /></div>
-        </header>        <div className="flex-1 overflow-y-auto p-8">
-          {activeTab === 'Maquettes' ? (
+        </header>        <div className="flex-1 overflow-y-auto p-8">          {activeTab === 'Maquettes' ? (
             <MaquettesView audits={audits} loading={loading} onNewAnalysis={() => setShowForm(true)} onView={handleView} onDelete={handleDelete} />
+          ) : activeTab === 'Rapports' ? (
+            <RapportsView audits={audits} loading={loading} />
           ) : (
             <>
           <div className="flex justify-between items-end mb-8">
