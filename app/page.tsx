@@ -47,110 +47,110 @@ function parseMaquetteDetails(details: string | null): { fileId: string; discipl
 // ─── Vue Rapports ─────────────────────────────────────────────────────────────
 
 const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: string; label: string; expected: string }[] }[] = [
-  // ── SECTION B : FICHIER IFC ─────────────────────────────────────────────────
+  // ── SECTION : FICHIER IFC ────────────────────────────────────────────────────
   {
-    section: "B — FICHIER IFC",
-    category: "B1 — FORMAT DE FICHIER",
+    section: "FICHIER IFC",
+    category: "1 — FORMAT DE FICHIER",
     items: [
-      { id: "B1.1", label: "Nom du fichier", expected: "Conforme à la convention de nommage OTEIS (code projet_discipline_phase)" },
-      { id: "B1.2", label: "Format IFC 2°3", expected: "Export IFC 2x3 (IFC2X3)" },
-      { id: "B1.3", label: "Taille du fichier", expected: "< 500 Mo par fichier IFC" },
+      { id: "1.1", label: "Nom du fichier", expected: "Conforme à la convention de nommage OTEIS (code projet_discipline_phase)" },
+      { id: "1.2", label: "Format IFC 2°3", expected: "Export IFC 2x3 (IFC2X3)" },
+      { id: "1.3", label: "Taille du fichier", expected: "< 500 Mo par fichier IFC" },
     ],
   },
   {
-    section: "B — FICHIER IFC",
-    category: "B2 — ORGANISATION DU FICHIER",
+    section: "FICHIER IFC",
+    category: "2 — ORGANISATION DU FICHIER",
     items: [
-      { id: "B2.1", label: "Architecture", expected: "Fichier IFC structuré par discipline (architecture, structure, MEP…)" },
-      { id: "B2.2", label: "Emplacement", expected: "Déposé dans le répertoire BIM défini dans la convention" },
+      { id: "2.1", label: "Architecture", expected: "Fichier IFC structuré par discipline (architecture, structure, MEP…)" },
+      { id: "2.2", label: "Emplacement", expected: "Déposé dans le répertoire BIM défini dans la convention" },
     ],
   },
   {
-    section: "B — FICHIER IFC",
-    category: "B3 — ATTRIBUTS PROJET (IFcProject)",
+    section: "FICHIER IFC",
+    category: "3 — ATTRIBUTS PROJET (IfcProject)",
     items: [
-      { id: "B3.1", label: "Localisation", expected: "Champ renseigné avec l'adresse du projet" },
-      { id: "B3.2", label: "Code Phases", expected: "Code phase conforme (EXE, PRO, DCE…)" },
-      { id: "B3.3", label: "Description (Description)", expected: "Description explicite du contenu du fichier" },
-      { id: "B3.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
+      { id: "3.1", label: "Localisation", expected: "Champ renseigné avec l'adresse du projet" },
+      { id: "3.2", label: "Code Phases", expected: "Code phase conforme (EXE, PRO, DCE…)" },
+      { id: "3.3", label: "Description (Description)", expected: "Description explicite du contenu du fichier" },
+      { id: "3.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
     ],
   },
   {
-    section: "B — FICHIER IFC",
-    category: "B4 — ATTRIBUTS SITE (IfcSite)",
+    section: "FICHIER IFC",
+    category: "4 — ATTRIBUTS SITE (IfcSite)",
     items: [
-      { id: "B4.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
-      { id: "B4.2", label: "Désignation (Description)", expected: "Description du site renseignée" },
-      { id: "B4.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées géographiques renseignées (RGF93 / Lambert 93)" },
-      { id: "B4.4", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
+      { id: "4.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
+      { id: "4.2", label: "Désignation (Description)", expected: "Description du site renseignée" },
+      { id: "4.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées géographiques renseignées (RGF93 / Lambert 93)" },
+      { id: "4.4", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
     ],
   },
   {
-    section: "B — FICHIER IFC",
-    category: "B5 — ATTRIBUTS IFC (IfcBuilding)",
+    section: "FICHIER IFC",
+    category: "5 — ATTRIBUTS IFC (IfcBuilding)",
     items: [
-      { id: "B5.1", label: "Nom (Name)", expected: "Nom du bâtiment renseigné" },
-      { id: "B5.2", label: "Désignation (Description)", expected: "Description du bâtiment renseignée" },
-      { id: "B5.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées cohérentes avec IfcSite" },
-      { id: "B5.4", label: "Elevation (Élévation Z)", expected: "Élévation de référence du bâtiment renseignée (NGF)" },
+      { id: "5.1", label: "Nom (Name)", expected: "Nom du bâtiment renseigné" },
+      { id: "5.2", label: "Désignation (Description)", expected: "Description du bâtiment renseignée" },
+      { id: "5.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées cohérentes avec IfcSite" },
+      { id: "5.4", label: "Elevation (Élévation Z)", expected: "Élévation de référence du bâtiment renseignée (NGF)" },
     ],
   },
   {
-    section: "B — FICHIER IFC",
-    category: "B6 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
+    section: "FICHIER IFC",
+    category: "6 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
     items: [
-      { id: "B6.1", label: "Adressage", expected: "Nommage conforme à la convention (RDC, R+1…)" },
-      { id: "B6.2", label: "Description (Description)", expected: "Description du niveau renseignée" },
-      { id: "B6.3", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
+      { id: "6.1", label: "Adressage", expected: "Nommage conforme à la convention (RDC, R+1…)" },
+      { id: "6.2", label: "Description (Description)", expected: "Description du niveau renseignée" },
+      { id: "6.3", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
     ],
   },
   {
-    section: "B — FICHIER IFC",
-    category: "B7 — COHÉRENCE / CONFORMITÉ",
+    section: "FICHIER IFC",
+    category: "7 — COHÉRENCE / CONFORMITÉ",
     items: [
-      { id: "B7.1", label: "Vérification visuelle de l'assemblage des modèles (Cohérence générale des maquettes assemblées)", expected: "Modèles correctement positionnés et superposés sans décalage" },
-      { id: "B7.2", label: "Contrôle visuel de la modélisation - Respect des règles de modélisation à maîtriser", expected: "Respect des règles de modélisation OTEIS (éléments non doublés, pas de géométrie parasite)" },
-      { id: "B7.3", label: "Rattachement / Modélisation des objets aux Bons niveaux", expected: "Chaque objet est rattaché au niveau auquel il appartient" },
-      { id: "B7.4", label: "Conformité maquette et Maquette architecture", expected: "Cohérence géométrique avec la maquette architecture de référence" },
-      { id: "B7.5", label: "Contrôle de la connexion des objets", expected: "Objets correctement connectés (murs, dalles, poteaux…)" },
-      { id: "B7.6", label: "Contrôle des conflits internes", expected: "0 conflit interne à la maquette (clash détection)" },
-      { id: "B7.7", label: "Contrôle des conflits externes", expected: "0 conflit critique inter-maquettes (clash détection fédérée)" },
-      { id: "B7.8", label: "Contrôle des sustènes", expected: "Systèmes de sustentation correctement modélisés et rattachés" },
+      { id: "7.1", label: "Vérification visuelle de l'assemblage des modèles (Cohérence générale des maquettes assemblées)", expected: "Modèles correctement positionnés et superposés sans décalage" },
+      { id: "7.2", label: "Contrôle visuel de la modélisation - Respect des règles de modélisation à maîtriser", expected: "Respect des règles de modélisation OTEIS (éléments non doublés, pas de géométrie parasite)" },
+      { id: "7.3", label: "Rattachement / Modélisation des objets aux Bons niveaux", expected: "Chaque objet est rattaché au niveau auquel il appartient" },
+      { id: "7.4", label: "Conformité maquette et Maquette architecture", expected: "Cohérence géométrique avec la maquette architecture de référence" },
+      { id: "7.5", label: "Contrôle de la connexion des objets", expected: "Objets correctement connectés (murs, dalles, poteaux…)" },
+      { id: "7.6", label: "Contrôle des conflits internes", expected: "0 conflit interne à la maquette (clash détection)" },
+      { id: "7.7", label: "Contrôle des conflits externes", expected: "0 conflit critique inter-maquettes (clash détection fédérée)" },
+      { id: "7.8", label: "Contrôle des sustènes", expected: "Systèmes de sustentation correctement modélisés et rattachés" },
     ],
   },
-  // ── SECTION C : FAMILLES ────────────────────────────────────────────────────
+  // ── SECTION : FAMILLES ──────────────────────────────────────────────────────
   {
-    section: "C — FAMILLES",
-    category: "C1 — IFCBUILDINGELEMENT PROXY",
+    section: "FAMILLES",
+    category: "8 — IFCBUILDINGELEMENT PROXY",
     items: [
-      { id: "C1.1", label: "Utilisation / limite des IfcBuildingElementProxy (aucun exception acceptée)", expected: "0 objet IfcBuildingElementProxy dans le fichier" },
-    ],
-  },
-  {
-    section: "C — FAMILLES",
-    category: "C2 — PIÈCES",
-    items: [
-      { id: "C2.1", label: "Classification IFC", expected: "Pièces classifiées en IfcSpace avec type correct" },
-      { id: "C2.2", label: "Données non courantes", expected: "Pas de données redondantes ou incohérentes sur les pièces" },
-      { id: "C2.3", label: "Nommage des pièces", expected: "Nommage conforme (code fonction + numéro selon convention)" },
-      { id: "C2.4", label: "Intersection de pièces", expected: "0 intersection / chevauchement entre pièces" },
-      { id: "C2.5", label: "Pset_IFC", expected: "Pset_SpaceCommon renseigné (IsExternal, GrossFloorArea…)" },
-      { id: "C2.6", label: "Propriétés", expected: "Propriétés métier renseignées (surface, usage, programme)" },
+      { id: "8.1", label: "Utilisation / limite des IfcBuildingElementProxy (aucun exception acceptée)", expected: "0 objet IfcBuildingElementProxy dans le fichier" },
     ],
   },
   {
-    section: "C — FAMILLES",
-    category: "C3 — FAMILLES OBJET 1 (Ex : MUR3)",
+    section: "FAMILLES",
+    category: "9 — PIÈCES",
     items: [
-      { id: "C3.1", label: "Dénomination IFC", expected: "Type IFC correct (IfcWall, IfcColumn, IfcBeam…)" },
-      { id: "C3.2", label: "Niveau de détail", expected: "LOD conforme à la phase (LOD 200 minimum en PRO)" },
-      { id: "C3.3", label: "Combinaison sur l'instance", expected: "Pas de combinaison de familles non prévue par la convention" },
-      { id: "C3.4", label: "Dimensions", expected: "Dimensions paramétriques correctement renseignées" },
-      { id: "C3.5", label: "Nom des objets", expected: "Nommage conforme à la convention OTEIS" },
-      { id: "C3.6", label: "Matériaux", expected: "Matériaux renseignés et conformes à la charte matériaux" },
-      { id: "C3.7", label: "Pset_app", expected: "Pset applicatif métier renseigné" },
-      { id: "C3.8", label: "Prop élec", expected: "Propriétés électriques renseignées (si applicable)" },
-      { id: "C3.9", label: "Prop méca", expected: "Propriétés mécaniques renseignées (si applicable)" },
+      { id: "9.1", label: "Classification IFC", expected: "Pièces classifiées en IfcSpace avec type correct" },
+      { id: "9.2", label: "Données non courantes", expected: "Pas de données redondantes ou incohérentes sur les pièces" },
+      { id: "9.3", label: "Nommage des pièces", expected: "Nommage conforme (code fonction + numéro selon convention)" },
+      { id: "9.4", label: "Intersection de pièces", expected: "0 intersection / chevauchement entre pièces" },
+      { id: "9.5", label: "Pset_IFC", expected: "Pset_SpaceCommon renseigné (IsExternal, GrossFloorArea…)" },
+      { id: "9.6", label: "Propriétés", expected: "Propriétés métier renseignées (surface, usage, programme)" },
+    ],
+  },
+  {
+    section: "FAMILLES",
+    category: "10 — FAMILLES OBJET 1 (Ex : MUR3)",
+    items: [
+      { id: "10.1", label: "Dénomination IFC", expected: "Type IFC correct (IfcWall, IfcColumn, IfcBeam…)" },
+      { id: "10.2", label: "Niveau de détail", expected: "LOD conforme à la phase (LOD 200 minimum en PRO)" },
+      { id: "10.3", label: "Combinaison sur l'instance", expected: "Pas de combinaison de familles non prévue par la convention" },
+      { id: "10.4", label: "Dimensions", expected: "Dimensions paramétriques correctement renseignées" },
+      { id: "10.5", label: "Nom des objets", expected: "Nommage conforme à la convention OTEIS" },
+      { id: "10.6", label: "Matériaux", expected: "Matériaux renseignés et conformes à la charte matériaux" },
+      { id: "10.7", label: "Pset_app", expected: "Pset applicatif métier renseigné" },
+      { id: "10.8", label: "Prop élec", expected: "Propriétés électriques renseignées (si applicable)" },
+      { id: "10.9", label: "Prop méca", expected: "Propriétés mécaniques renseignées (si applicable)" },
     ],
   },
 ];
@@ -671,8 +671,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
             {RAPPORT_CATEGORIES.map(cat => (
                     <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
+                        <div>                          <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
                           <div className="text-sm font-bold text-white">{cat.category}</div>
                         </div>                        <div className="flex items-center gap-3">
                           {maquettes.map(m => {
