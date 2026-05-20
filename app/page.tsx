@@ -444,13 +444,37 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   onView: (details: string | null, name: string) => void;
   onDelete: (id: number) => void;
   chapitresOnly?: boolean;
-}){
-  const maquettes = audits.slice(0, 6);  const [cells, setCells] = useState<Record<string, CellStatus>>({});
+}){  const maquettes = audits.slice(0, 6);  const [cells, setCells] = useState<Record<string, CellStatus>>({});
   const [aiComments, setAiComments] = useState<Record<string, string>>({});
   const [namingPattern, setNamingPattern] = useState('');
+  const [patternSaving, setPatternSaving] = useState(false);
+  const [patternSaved, setPatternSaved] = useState(false);
   const [aiLoading, setAiLoading] = useState<Record<number, boolean>>({});
   const [aiError, setAiError] = useState<Record<number, string>>({});
   const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
+
+  // Charger le pattern sauvegardé au montage
+  useEffect(() => {
+    supabase.from('audit_config').select('value').eq('key', 'naming_pattern').maybeSingle()
+      .then(({ data }) => { if (data?.value) setNamingPattern(data.value); });
+  }, []);
+
+  async function saveNamingPattern() {
+    if (!namingPattern.trim()) return;
+    setPatternSaving(true);
+    setPatternSaved(false);
+    const { error } = await supabase.from('audit_config').upsert(
+      { key: 'naming_pattern', value: namingPattern.trim() },
+      { onConflict: 'key' }
+    );
+    setPatternSaving(false);
+    if (!error) {
+      setPatternSaved(true);
+      setTimeout(() => setPatternSaved(false), 2500);
+    } else {
+      alert('Erreur lors de la sauvegarde : ' + error.message);
+    }
+  }
 
   const setCell = (itemId: string, maqId: number, val: CellStatus) =>
     setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
@@ -706,16 +730,31 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-top whitespace-nowrap">{item.id}</td>
-                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>                                    <td className="px-3 py-3 align-top">
-                                      <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
-                                      <input
-                                        type="text"
-                                        value={namingPattern}
-                                        onChange={e => setNamingPattern(e.target.value)}
-                                        placeholder="ex: PRJ_*_ARC_* ou OTEIS_*"
-                                        className="w-full text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
-                                      />
-                                      <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p>                                    </td>
+                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>                                    <td className="px-3 py-3 align-top">                                      <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          value={namingPattern}
+                                          onChange={e => { setNamingPattern(e.target.value); setPatternSaved(false); }}
+                                          placeholder="ex: PRJ_*_ARC_* ou OTEIS_*"
+                                          className="flex-1 text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
+                                        />
+                                        <button
+                                          onClick={saveNamingPattern}
+                                          disabled={patternSaving || !namingPattern.trim()}
+                                          className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                            patternSaved
+                                              ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                              : patternSaving
+                                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
+                                              : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                                          }`}
+                                          title="Sauvegarder sur Supabase"
+                                        >
+                                          {patternSaved ? '✓ Sauvegardé' : patternSaving ? '…' : 'OK'}
+                                        </button>
+                                      </div>
+                                      <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p></td>
                                     {maquettes.map(m => {
                                       const status = checkNaming(m.project_name, namingPattern);
                                       const map: Record<CellStatus, { bg: string; label: string }> = {
