@@ -692,9 +692,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                         <table className="w-full text-xs border-collapse">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200">                              <th className="text-left px-3 py-2 font-bold text-slate-400 w-12">N°</th>
-                              <th className="text-left px-3 py-2 font-bold text-slate-600 min-w-[200px]">Item de contrôle</th>
-                              <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[200px]">Attendu</th>
-                              <th className="text-left px-3 py-2 font-bold text-violet-600 min-w-[220px]">Analyse IA</th>{maquettes.length === 0
+                              <th className="text-left px-3 py-2 font-bold text-slate-600 min-w-[200px]">Item de contrôle</th>                              <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[200px]">Attendu</th>
+                              {maquettes.length === 0
                                 ? <th className="text-center px-3 py-2 text-slate-300 italic font-normal">← Chargez des maquettes</th>
                                 : maquettes.map(m => {
                                     const { discipline } = parseMaquetteDetails(m.details);
@@ -727,28 +726,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         placeholder="ex: PRJ_*_ARC_* ou OTEIS_*"
                                         className="w-full text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
                                       />
-                                      <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p>
-                                    </td>
-                                    {/* Colonne Analyse IA — B1.1 : agrégat des commentaires */}
-                                    <td className="px-3 py-3 align-top">
-                                      {maquettes.some(m => aiComments[`${item.id}-${m.id}`]) ? (
-                                        <div className="space-y-1.5">
-                                          {maquettes.map(m => {
-                                            const comment = aiComments[`${item.id}-${m.id}`];
-                                            if (!comment) return null;
-                                            const { discipline } = parseMaquetteDetails(m.details);
-                                            return (
-                                              <div key={m.id} className="text-[10px] text-violet-700 bg-violet-50 rounded-lg px-2 py-1.5 leading-snug border border-violet-100">
-                                                {discipline && <span className="font-bold text-violet-500 mr-1">[{discipline}]</span>}
-                                                {comment}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      ) : (
-                                        <span className="text-[10px] text-slate-300 italic">— En attente d&apos;analyse</span>
-                                      )}
-                                    </td>
+                                      <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p>                                    </td>
                                     {maquettes.map(m => {
                                       const status = checkNaming(m.project_name, namingPattern);
                                       const map: Record<CellStatus, { bg: string; label: string }> = {
@@ -759,15 +737,19 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         '':      { bg: 'bg-slate-50 text-slate-300',       label: '—' },
                                       };
                                       const { bg, label } = map[status];
+                                      const comment = aiComments[`${item.id}-${m.id}`];
                                       return (
                                         <td key={m.id} className="px-1.5 py-2 align-top">
                                           <div className={`w-full h-7 rounded text-[11px] font-bold flex items-center justify-center ${bg}`}>
                                             {label}
                                           </div>
-                                          {status === 'error' && namingPattern && (
+                                          {comment && (
+                                            <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{comment}</p>
+                                          )}
+                                          {!comment && status === 'error' && namingPattern && (
                                             <p className="text-[8px] text-red-400 mt-1 text-center leading-tight break-all px-1">Non conforme</p>
                                           )}
-                                          {status === 'ok' && (
+                                          {!comment && status === 'ok' && (
                                             <p className="text-[8px] text-emerald-500 mt-1 text-center leading-tight">Conforme</p>
                                           )}
                                         </td>
@@ -784,31 +766,14 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
                                     <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                    <td className="px-3 py-2 text-slate-400 italic align-middle leading-snug">{item.expected}</td>
-                                    {/* Colonne Analyse IA — B1.2 */}
-                                    <td className="px-3 py-2 align-middle">
-                                      {maquettes.some(m => aiComments[`${item.id}-${m.id}`]) ? (
-                                        <div className="space-y-1.5">
-                                          {maquettes.map(m => {
-                                            const comment = aiComments[`${item.id}-${m.id}`];
-                                            if (!comment) return null;
-                                            const { discipline } = parseMaquetteDetails(m.details);
-                                            return (
-                                              <div key={m.id} className="text-[10px] text-violet-700 bg-violet-50 rounded-lg px-2 py-1.5 leading-snug border border-violet-100">
-                                                {discipline && <span className="font-bold text-violet-500 mr-1">[{discipline}]</span>}
-                                                {comment}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      ) : (
-                                        <span className="text-[10px] text-slate-300 italic">— En attente d&apos;analyse</span>
-                                      )}
-                                    </td>
                                     {maquettes.map(m => (
-                                      <td key={m.id} className="px-1.5 py-1.5 align-middle">
+                                      <td key={m.id} className="px-1.5 py-1.5 align-top">
                                         <div className="w-full h-7 rounded text-[11px] font-bold flex items-center justify-center bg-emerald-100 text-emerald-700" title="Seuls les fichiers .ifc sont acceptés">
                                           ✓
                                         </div>
+                                        {aiComments[`${item.id}-${m.id}`] && (
+                                          <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{aiComments[`${item.id}-${m.id}`]}</p>
+                                        )}
                                       </td>
                                     ))}
                                     {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
@@ -824,22 +789,24 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                    <td className="px-3 py-2 align-middle leading-snug">
                                       <span className="text-slate-400 italic">{item.expected}</span>
                                       <p className="text-[9px] text-orange-400 mt-0.5">⚠ Vérification manuelle requise</p>
-                                    </td>
-                                    {/* Colonne Analyse IA — B1.3 */}
+                                    </td>                                    {/* Colonne Analyse IA — B1.3 */}
                                     <td className="px-3 py-2 align-middle">
                                       <span className="text-[10px] text-slate-300 italic">— Vérification manuelle</span>
-                                    </td>
-                                    {maquettes.map(m => {
+                                    </td>                                    {maquettes.map(m => {
                                       const st = cells[`${item.id}-${m.id}`] ?? '';
                                       const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
                                       const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
                                       const { bg, label } = statusMap[st];
+                                      const comment = aiComments[`${item.id}-${m.id}`];
                                       return (
-                                        <td key={m.id} className="px-1.5 py-1.5 align-middle">
+                                        <td key={m.id} className="px-1.5 py-1.5 align-top">
                                           <button onClick={next} title="Cliquer pour renseigner manuellement"
                                             className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}>
                                             {label}
                                           </button>
+                                          {comment && (
+                                            <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{comment}</p>
+                                          )}
                                         </td>
                                       );
                                     })}
@@ -851,39 +818,22 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                               // ── Cas général : cellule cliquable ──
                               return (                              <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/30 transition-colors`}>
                                 <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
-                                <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>
-                                <td className="px-3 py-2 text-slate-400 italic align-middle leading-snug">{item.expected}</td>
-                                {/* Colonne Analyse IA — cas général */}
-                                <td className="px-3 py-2 align-middle">
-                                  {maquettes.some(m => aiComments[`${item.id}-${m.id}`]) ? (
-                                    <div className="space-y-1.5">
-                                      {maquettes.map(m => {
-                                        const comment = aiComments[`${item.id}-${m.id}`];
-                                        if (!comment) return null;
-                                        const { discipline } = parseMaquetteDetails(m.details);
-                                        return (
-                                          <div key={m.id} className="text-[10px] text-violet-700 bg-violet-50 rounded-lg px-2 py-1.5 leading-snug border border-violet-100">
-                                            {discipline && <span className="font-bold text-violet-500 mr-1">[{discipline}]</span>}
-                                            {comment}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-300 italic">— En attente d&apos;analyse</span>
-                                  )}
-                                </td>
+                                <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                <td className="px-3 py-2 text-slate-400 italic align-top leading-snug">{item.expected}</td>
                                 {maquettes.map(m => {
                                   const st = cells[`${item.id}-${m.id}`] ?? '';
                                   const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
                                   const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
                                   const { bg, label } = statusMap[st];
+                                  const comment = aiComments[`${item.id}-${m.id}`];
                                   return (
-                                    <td key={m.id} className="px-1.5 py-1.5 align-middle">
+                                    <td key={m.id} className="px-1.5 py-1.5 align-top">
                                       <button onClick={next} title="Cliquer pour changer le statut"
                                         className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}>
                                         {label}
                                       </button>
+                                      {comment && (
+                                        <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{comment}</p>
+                                      )}
                                     </td>
                                   );
                                 })}
