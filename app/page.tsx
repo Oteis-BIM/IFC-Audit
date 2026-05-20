@@ -56,101 +56,92 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
       { id: "1.2", label: "Format IFC 2°3", expected: "Export IFC 2x3 (IFC2X3)" },
       { id: "1.3", label: "Taille du fichier", expected: "< 500 Mo par fichier IFC" },
     ],
-  },
-  {
+  },  {
     section: "FICHIER IFC",
-    category: "2 — ORGANISATION DU FICHIER",
+    category: "2 — ATTRIBUTS PROJET (IfcProject)",
     items: [
-      { id: "2.1", label: "Architecture", expected: "Fichier IFC structuré par discipline (architecture, structure, MEP…)" },
-      { id: "2.2", label: "Emplacement", expected: "Déposé dans le répertoire BIM défini dans la convention" },
+      { id: "2.1", label: "Localisation", expected: "Champ renseigné avec l'adresse du projet" },
+      { id: "2.2", label: "Code Phases", expected: "Code phase conforme (EXE, PRO, DCE…)" },
+      { id: "2.3", label: "Description (Description)", expected: "Description explicite du contenu du fichier" },
+      { id: "2.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
     ],
   },
   {
     section: "FICHIER IFC",
-    category: "3 — ATTRIBUTS PROJET (IfcProject)",
+    category: "3 — ATTRIBUTS SITE (IfcSite)",
     items: [
-      { id: "3.1", label: "Localisation", expected: "Champ renseigné avec l'adresse du projet" },
-      { id: "3.2", label: "Code Phases", expected: "Code phase conforme (EXE, PRO, DCE…)" },
-      { id: "3.3", label: "Description (Description)", expected: "Description explicite du contenu du fichier" },
-      { id: "3.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
+      { id: "3.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
+      { id: "3.2", label: "Désignation (Description)", expected: "Description du site renseignée" },
+      { id: "3.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées géographiques renseignées (RGF93 / Lambert 93)" },
+      { id: "3.4", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
     ],
   },
   {
     section: "FICHIER IFC",
-    category: "4 — ATTRIBUTS SITE (IfcSite)",
+    category: "4 — ATTRIBUTS IFC (IfcBuilding)",
     items: [
-      { id: "4.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
-      { id: "4.2", label: "Désignation (Description)", expected: "Description du site renseignée" },
-      { id: "4.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées géographiques renseignées (RGF93 / Lambert 93)" },
-      { id: "4.4", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
+      { id: "4.1", label: "Nom (Name)", expected: "Nom du bâtiment renseigné" },
+      { id: "4.2", label: "Désignation (Description)", expected: "Description du bâtiment renseignée" },
+      { id: "4.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées cohérentes avec IfcSite" },
+      { id: "4.4", label: "Elevation (Élévation Z)", expected: "Élévation de référence du bâtiment renseignée (NGF)" },
     ],
   },
   {
     section: "FICHIER IFC",
-    category: "5 — ATTRIBUTS IFC (IfcBuilding)",
+    category: "5 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
     items: [
-      { id: "5.1", label: "Nom (Name)", expected: "Nom du bâtiment renseigné" },
-      { id: "5.2", label: "Désignation (Description)", expected: "Description du bâtiment renseignée" },
-      { id: "5.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées cohérentes avec IfcSite" },
-      { id: "5.4", label: "Elevation (Élévation Z)", expected: "Élévation de référence du bâtiment renseignée (NGF)" },
+      { id: "5.1", label: "Adressage", expected: "Nommage conforme à la convention (RDC, R+1…)" },
+      { id: "5.2", label: "Description (Description)", expected: "Description du niveau renseignée" },
+      { id: "5.3", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
     ],
   },
   {
     section: "FICHIER IFC",
-    category: "6 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
+    category: "6 — COHÉRENCE / CONFORMITÉ",
     items: [
-      { id: "6.1", label: "Adressage", expected: "Nommage conforme à la convention (RDC, R+1…)" },
-      { id: "6.2", label: "Description (Description)", expected: "Description du niveau renseignée" },
-      { id: "6.3", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
-    ],
-  },
-  {
-    section: "FICHIER IFC",
-    category: "7 — COHÉRENCE / CONFORMITÉ",
-    items: [
-      { id: "7.1", label: "Vérification visuelle de l'assemblage des modèles (Cohérence générale des maquettes assemblées)", expected: "Modèles correctement positionnés et superposés sans décalage" },
-      { id: "7.2", label: "Contrôle visuel de la modélisation - Respect des règles de modélisation à maîtriser", expected: "Respect des règles de modélisation OTEIS (éléments non doublés, pas de géométrie parasite)" },
-      { id: "7.3", label: "Rattachement / Modélisation des objets aux Bons niveaux", expected: "Chaque objet est rattaché au niveau auquel il appartient" },
-      { id: "7.4", label: "Conformité maquette et Maquette architecture", expected: "Cohérence géométrique avec la maquette architecture de référence" },
-      { id: "7.5", label: "Contrôle de la connexion des objets", expected: "Objets correctement connectés (murs, dalles, poteaux…)" },
-      { id: "7.6", label: "Contrôle des conflits internes", expected: "0 conflit interne à la maquette (clash détection)" },
-      { id: "7.7", label: "Contrôle des conflits externes", expected: "0 conflit critique inter-maquettes (clash détection fédérée)" },
-      { id: "7.8", label: "Contrôle des sustènes", expected: "Systèmes de sustentation correctement modélisés et rattachés" },
+      { id: "6.1", label: "Vérification visuelle de l'assemblage des modèles (Cohérence générale des maquettes assemblées)", expected: "Modèles correctement positionnés et superposés sans décalage" },
+      { id: "6.2", label: "Contrôle visuel de la modélisation - Respect des règles de modélisation à maîtriser", expected: "Respect des règles de modélisation OTEIS (éléments non doublés, pas de géométrie parasite)" },
+      { id: "6.3", label: "Rattachement / Modélisation des objets aux Bons niveaux", expected: "Chaque objet est rattaché au niveau auquel il appartient" },
+      { id: "6.4", label: "Conformité maquette et Maquette architecture", expected: "Cohérence géométrique avec la maquette architecture de référence" },
+      { id: "6.5", label: "Contrôle de la connexion des objets", expected: "Objets correctement connectés (murs, dalles, poteaux…)" },
+      { id: "6.6", label: "Contrôle des conflits internes", expected: "0 conflit interne à la maquette (clash détection)" },
+      { id: "6.7", label: "Contrôle des conflits externes", expected: "0 conflit critique inter-maquettes (clash détection fédérée)" },
+      { id: "6.8", label: "Contrôle des sustènes", expected: "Systèmes de sustentation correctement modélisés et rattachés" },
     ],
   },
   // ── SECTION : FAMILLES ──────────────────────────────────────────────────────
   {
     section: "FAMILLES",
-    category: "8 — IFCBUILDINGELEMENT PROXY",
+    category: "7 — IFCBUILDINGELEMENT PROXY",
     items: [
-      { id: "8.1", label: "Utilisation / limite des IfcBuildingElementProxy (aucun exception acceptée)", expected: "0 objet IfcBuildingElementProxy dans le fichier" },
+      { id: "7.1", label: "Utilisation / limite des IfcBuildingElementProxy (aucun exception acceptée)", expected: "0 objet IfcBuildingElementProxy dans le fichier" },
     ],
   },
   {
     section: "FAMILLES",
-    category: "9 — PIÈCES",
+    category: "8 — PIÈCES",
     items: [
-      { id: "9.1", label: "Classification IFC", expected: "Pièces classifiées en IfcSpace avec type correct" },
-      { id: "9.2", label: "Données non courantes", expected: "Pas de données redondantes ou incohérentes sur les pièces" },
-      { id: "9.3", label: "Nommage des pièces", expected: "Nommage conforme (code fonction + numéro selon convention)" },
-      { id: "9.4", label: "Intersection de pièces", expected: "0 intersection / chevauchement entre pièces" },
-      { id: "9.5", label: "Pset_IFC", expected: "Pset_SpaceCommon renseigné (IsExternal, GrossFloorArea…)" },
-      { id: "9.6", label: "Propriétés", expected: "Propriétés métier renseignées (surface, usage, programme)" },
+      { id: "8.1", label: "Classification IFC", expected: "Pièces classifiées en IfcSpace avec type correct" },
+      { id: "8.2", label: "Données non courantes", expected: "Pas de données redondantes ou incohérentes sur les pièces" },
+      { id: "8.3", label: "Nommage des pièces", expected: "Nommage conforme (code fonction + numéro selon convention)" },
+      { id: "8.4", label: "Intersection de pièces", expected: "0 intersection / chevauchement entre pièces" },
+      { id: "8.5", label: "Pset_IFC", expected: "Pset_SpaceCommon renseigné (IsExternal, GrossFloorArea…)" },
+      { id: "8.6", label: "Propriétés", expected: "Propriétés métier renseignées (surface, usage, programme)" },
     ],
   },
   {
     section: "FAMILLES",
-    category: "10 — FAMILLES OBJET 1 (Ex : MUR3)",
+    category: "9 — FAMILLES OBJET 1 (Ex : MUR3)",
     items: [
-      { id: "10.1", label: "Dénomination IFC", expected: "Type IFC correct (IfcWall, IfcColumn, IfcBeam…)" },
-      { id: "10.2", label: "Niveau de détail", expected: "LOD conforme à la phase (LOD 200 minimum en PRO)" },
-      { id: "10.3", label: "Combinaison sur l'instance", expected: "Pas de combinaison de familles non prévue par la convention" },
-      { id: "10.4", label: "Dimensions", expected: "Dimensions paramétriques correctement renseignées" },
-      { id: "10.5", label: "Nom des objets", expected: "Nommage conforme à la convention OTEIS" },
-      { id: "10.6", label: "Matériaux", expected: "Matériaux renseignés et conformes à la charte matériaux" },
-      { id: "10.7", label: "Pset_app", expected: "Pset applicatif métier renseigné" },
-      { id: "10.8", label: "Prop élec", expected: "Propriétés électriques renseignées (si applicable)" },
-      { id: "10.9", label: "Prop méca", expected: "Propriétés mécaniques renseignées (si applicable)" },
+      { id: "9.1", label: "Dénomination IFC", expected: "Type IFC correct (IfcWall, IfcColumn, IfcBeam…)" },
+      { id: "9.2", label: "Niveau de détail", expected: "LOD conforme à la phase (LOD 200 minimum en PRO)" },
+      { id: "9.3", label: "Combinaison sur l'instance", expected: "Pas de combinaison de familles non prévue par la convention" },
+      { id: "9.4", label: "Dimensions", expected: "Dimensions paramétriques correctement renseignées" },
+      { id: "9.5", label: "Nom des objets", expected: "Nommage conforme à la convention OTEIS" },
+      { id: "9.6", label: "Matériaux", expected: "Matériaux renseignés et conformes à la charte matériaux" },
+      { id: "9.7", label: "Pset_app", expected: "Pset applicatif métier renseigné" },
+      { id: "9.8", label: "Prop élec", expected: "Propriétés électriques renseignées (si applicable)" },
+      { id: "9.9", label: "Prop méca", expected: "Propriétés mécaniques renseignées (si applicable)" },
     ],
   },
 ];
@@ -710,9 +701,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                               }
                             </tr>
                           </thead>                          <tbody>
-                            {cat.items.map((item, ii) => {
-                              // ── B1.1 : pattern de nommage éditable + vérification auto ──
-                              if (item.id === 'B1.1') {
+                            {cat.items.map((item, ii) => {                              // ── 1.1 : pattern de nommage éditable + vérification auto ──
+                              if (item.id === '1.1') {
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-top whitespace-nowrap">{item.id}</td>
@@ -757,10 +747,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
                                   </tr>
                                 );
-                              }
-
-                              // ── B1.2 : format IFC — auto OK car seuls les .ifc sont acceptés ──
-                              if (item.id === 'B1.2') {
+                              }                              // ── 1.2 : format IFC — auto OK car seuls les .ifc sont acceptés ──
+                              if (item.id === '1.2') {
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
@@ -778,10 +766,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
                                   </tr>
                                 );
-                              }
-
-                              // ── B1.3 : taille du fichier — non vérifiable, cliquable avec info ──
-                              if (item.id === 'B1.3') {
+                              }                              // ── 1.3 : taille du fichier — non vérifiable, cliquable avec info ──
+                              if (item.id === '1.3') {
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
