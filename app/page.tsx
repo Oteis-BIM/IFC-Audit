@@ -1194,8 +1194,7 @@ export default function Dashboard() {
   async function confirmDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
-    try {
-      // Supprimer le fichier sur Box si disponible
+    try {      // Supprimer le fichier sur Box si disponible
       if (deleteTarget.details?.startsWith('box:')) {
         const { fileId: boxFileId } = parseMaquetteDetails(deleteTarget.details);
         if (boxFileId) {
@@ -1205,8 +1204,15 @@ export default function Dashboard() {
             body: JSON.stringify({ fileId: boxFileId }),
           });
           if (!boxRes.ok) {
-            const err = await boxRes.json();
-            throw new Error(`Erreur Box : ${err.error ?? boxRes.status}`);
+            const err = await boxRes.json().catch(() => ({}));
+            const errMsg: string = err.error ?? String(boxRes.status);
+            // Si erreur d'auth Box (session expirée), on continue quand même
+            // la suppression dans Supabase et on avertit l'utilisateur
+            if (boxRes.status === 401 || errMsg.toLowerCase().includes('token')) {
+              alert(`⚠️ Session Box expirée — le fichier n'a pas pu être supprimé sur Box.\nLa maquette sera retirée de l'application.\n\nReconnectez-vous à Box pour supprimer le fichier distant.`);
+            } else {
+              throw new Error(`Erreur Box : ${errMsg}`);
+            }
           }
         }
       }
