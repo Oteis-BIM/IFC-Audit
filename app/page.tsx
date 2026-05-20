@@ -1281,7 +1281,26 @@ export default function Dashboard() {
               >{t}</span>
             ))}
           </nav>
-          <div className="flex items-center space-x-4"><Bell className="h-5 w-5 text-slate-400" /><UserCircle className="h-6 w-6 text-slate-400" /></div>
+          <div className="flex items-center space-x-3">
+            {/* Bouton statut connexion Box */}
+            {boxReady ? (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                <span className="text-xs font-medium text-emerald-700">Box connecté</span>
+              </div>
+            ) : (
+              <button
+                onClick={handleConnectBox}
+                className="flex items-center gap-2 bg-orange-50 border border-orange-300 hover:bg-orange-100 text-orange-700 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors"
+                title="Session Box expirée — cliquez pour vous reconnecter"
+              >
+                <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0"></span>
+                Se connecter à Box
+              </button>
+            )}
+            <Bell className="h-5 w-5 text-slate-400" />
+            <UserCircle className="h-6 w-6 text-slate-400" />
+          </div>
         </header>        <div className="flex-1 overflow-y-auto p-8">          {activeTab === 'Maquettes' ? (
             <>
               <div className="flex justify-between items-end mb-8">
