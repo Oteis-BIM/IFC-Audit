@@ -49,15 +49,18 @@ function extractIfcContent(raw: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { fileId, fileName, discipline } = await req.json();
+    const { fileId, fileName, discipline, criteria } = await req.json();
+    type Criterion = { id: string; label: string; expected: string };
     if (!fileId || !fileName) {
       return NextResponse.json({ error: 'fileId et fileName requis' }, { status: 400 });
     }    if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: 'OPENAI_API_KEY non configurée' }, { status: 500 });
-    }
-
-    // Instanciation ici pour éviter un crash au build si la clé est absente
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }    // Instanciation ici pour éviter un crash au build si la clé est absente
+    // Supporte OpenAI ET GitHub Models (via OPENAI_BASE_URL)
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}),
+    });
 
     // ── Récupérer le fichier IFC depuis Box ──────────────────────────────────
     const cookieStore = await cookies();
@@ -81,60 +84,59 @@ export async function POST(req: NextRequest) {
 
     const buffer = await boxRes.arrayBuffer();
     const raw = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
-    const ifcContent = extractIfcContent(raw);
+    const ifcContent = extractIfcContent(raw);    // ── Prompt système OTEIS ─────────────────────────────────────────────────
+    // Construire la liste des critères depuis ce qui est passé par le client
+    const criteriaList: Criterion[] = Array.isArray(criteria) && criteria.length > 0
+      ? criteria
+      : [];
 
-    // ── Prompt système OTEIS ─────────────────────────────────────────────────
+    const criteriaText = criteriaList.map(c =>
+      `- ${c.id} | ${c.label} | Attendu : ${c.expected}`
+    ).join('\n');
+
+    const criteriaIds = criteriaList.map(c => c.id).join(', ');
+
     const systemPrompt = `Tu es un expert BIM et auditeur de maquettes IFC selon le référentiel OTEIS.
-Tu analyses un extrait d'un fichier IFC (format STEP ISO 10303-21) et tu évalues la conformité de chaque critère de contrôle qualité OTEIS.
+Tu analyses un extrait d'un fichier IFC (format STEP ISO 10303-21) et tu évalues la conformité de chaque critère fourni.
 
 Pour chaque critère, tu retournes OBLIGATOIREMENT un statut parmi :
-- "ok" : critère conforme
-- "warning" : critère partiellement conforme ou impossible à vérifier précisément (présent mais incomplet)
+- "ok" : critère conforme à l'attendu
+- "warning" : critère partiellement conforme, présent mais incomplet, ou vérification partielle possible
 - "error" : critère non conforme ou absent
-- "na" : critère non applicable pour cette discipline/fichier
+- "na" : critère non applicable pour cette discipline ou ce type de fichier
+- "unclear" : l'attendu est trop vague ou le critère ne peut pas être vérifié depuis un fichier IFC (ex : vérification visuelle, clash détection, règles de modélisation subjectives)
+
+IMPORTANT : 
+- Utilise "unclear" si l'attendu nécessite une intervention humaine ou une vérification visuelle
+- Utilise "na" uniquement si le critère est clairement hors périmètre pour cette discipline
+- Ne devine pas : si tu ne peux pas vérifier depuis l'extrait IFC, dis "unclear"
+- Le commentaire doit expliquer précisément ce que tu as trouvé (ou pas trouvé) dans le fichier
 
 Tu retournes UNIQUEMENT un objet JSON valide, sans aucun texte autour, avec cette structure exacte :
 {
-  "B1.2": { "status": "ok", "comment": "..." },
-  "B3.1": { "status": "warning", "comment": "..." },
+  "B1.2": { "status": "ok", "comment": "FILE_SCHEMA indique IFC2X3, conforme." },
+  "B7.1": { "status": "unclear", "comment": "Vérification visuelle requise, impossible depuis l'extrait IFC." },
   ...
-}
-
-Règles métier OTEIS :
-- B1.2 : Format doit être IFC2X3 (FILE_SCHEMA dans l'en-tête STEP)
-- B3.1 : IfcProject doit avoir une description de localisation du projet
-- B3.2 : Le code phase (EXE, PRO, DCE, APD, AVP…) doit être renseigné dans IfcProject
-- B3.3 : Description du contenu du fichier doit être renseignée dans IfcProject
-- B3.4 : La phase du projet doit être renseignée dans IfcProject
-- B4.1 : IfcSite doit avoir un nom
-- B4.2 : IfcSite doit avoir une description
-- B4.3 : IfcSite doit avoir des coordonnées géographiques (RefLatitude, RefLongitude)
-- B4.4 : IfcSite doit avoir une élévation (RefElevation)
-- B5.1 : IfcBuilding doit avoir un nom
-- B5.2 : IfcBuilding doit avoir une description
-- B5.3 : IfcBuilding doit avoir des coordonnées
-- B5.4 : IfcBuilding doit avoir une élévation de référence (ElevationOfRefHeight)
-- B6.1 : Les IfcBuildingStorey doivent avoir des noms conformes (RDC, R+1, SS1…)
-- B6.2 : Les IfcBuildingStorey doivent avoir une description
-- B6.3 : Les IfcBuildingStorey doivent avoir une élévation NGF renseignée
-- C1.1 : Aucun IfcBuildingElementProxy ne doit être présent`;
+}`;
 
     const userPrompt = `Fichier IFC à analyser :
 Nom du fichier : ${fileName}
 Discipline : ${discipline || 'non précisée'}
+
+Critères à évaluer (ID | Libellé | Attendu) :
+${criteriaText}
 
 Extrait du contenu IFC :
 \`\`\`
 ${ifcContent}
 \`\`\`
 
-Analyse ce fichier IFC et retourne le JSON de conformité pour les critères B1.2, B3.1, B3.2, B3.3, B3.4, B4.1, B4.2, B4.3, B4.4, B5.1, B5.2, B5.3, B5.4, B6.1, B6.2, B6.3, C1.1.`;
+Analyse ce fichier IFC et retourne le JSON de conformité pour les critères : ${criteriaIds}.`;
 
     // ── Appel OpenAI ─────────────────────────────────────────────────────────
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const completion = await openai.chat.completions.create({      model: 'gpt-4o-mini',
       temperature: 0,
-      max_tokens: 1200,
+      max_tokens: 3000,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

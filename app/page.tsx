@@ -471,23 +471,27 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
     setAiLoading(prev => ({ ...prev, [audit.id]: true }));
     setAiError(prev => ({ ...prev, [audit.id]: '' }));
     setAiDone(prev => ({ ...prev, [audit.id]: false }));
-    try {
+    try {      // Construire la liste des critères vérifiables automatiquement avec leur attendu
+      const criteria = RAPPORT_CATEGORIES.flatMap(cat =>
+        cat.items.map(item => ({ id: item.id, label: item.label, expected: item.expected }))
+      );
       const res = await fetch('/api/ai-audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, fileName: audit.project_name, discipline }),
+        body: JSON.stringify({ fileId, fileName: audit.project_name, discipline, criteria }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-      // Injecter les résultats dans les cellules
-      const results: Record<string, { status: string; comment: string }> = data.results;
+      // Injecter les résultats dans les cellules      const results: Record<string, { status: string; comment: string }> = data.results;
       setCells(prev => {
         const next = { ...prev };
         for (const [itemId, val] of Object.entries(results)) {
           const st = val.status as CellStatus;
+          // "unclear" = laisser vide (vérification humaine requise)
           if (['ok', 'warning', 'error', 'na'].includes(st)) {
             next[`${itemId}-${audit.id}`] = st;
           }
+          // Pour "unclear", on ne touche pas la cellule existante
         }
         return next;
       });
