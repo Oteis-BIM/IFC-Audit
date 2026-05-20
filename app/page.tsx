@@ -452,17 +452,26 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const [aiLoading, setAiLoading] = useState<Record<number, boolean>>({});
   const [aiError, setAiError] = useState<Record<number, string>>({});
   const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
-
-  // Charger le pattern sauvegardé au montage
+  // Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
     supabase.from('audit_config').select('value').eq('key', 'naming_pattern').maybeSingle()
-      .then(({ data }) => { if (data?.value) setNamingPattern(data.value); });
+      .then(({ data, error }) => {
+        if (data?.value) {
+          setNamingPattern(data.value);
+        } else if (error) {
+          // Fallback localStorage si la table n'existe pas encore
+          const local = localStorage.getItem('naming_pattern');
+          if (local) setNamingPattern(local);
+        }
+      });
   }, []);
 
   async function saveNamingPattern() {
     if (!namingPattern.trim()) return;
     setPatternSaving(true);
     setPatternSaved(false);
+    // Toujours sauvegarder en localStorage (fallback instantané)
+    localStorage.setItem('naming_pattern', namingPattern.trim());
     const { error } = await supabase.from('audit_config').upsert(
       { key: 'naming_pattern', value: namingPattern.trim() },
       { onConflict: 'key' }
@@ -472,7 +481,10 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
       setPatternSaved(true);
       setTimeout(() => setPatternSaved(false), 2500);
     } else {
-      alert('Erreur lors de la sauvegarde : ' + error.message);
+      // Supabase KO mais localStorage OK → succès partiel
+      console.warn('Supabase audit_config indisponible, sauvegardé en localStorage uniquement :', error.message);
+      setPatternSaved(true);
+      setTimeout(() => setPatternSaved(false), 2500);
     }
   }
 
