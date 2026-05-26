@@ -874,17 +874,27 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   const expElevNum = displayElev ? parseFloat(displayElev) * 1000 : null;
                                   const ifcElev = found?.elevation ?? null;
                                   const nameOk = !!lvl.name && !!found;
-                                  const elevOk = expElevNum === null || (ifcElev !== null && Math.abs(ifcElev - expElevNum) <= 50);
-
-                                  const overall = storeys.length === 0
-                                    ? 'pending'
-                                    : !lvl.name
-                                    ? 'na'
-                                    : !found
-                                    ? 'missing'
-                                    : nameOk && elevOk ? 'ok'
-                                    : nameOk ? 'warning'
-                                    : 'error';
+                                  const elevOk = expElevNum === null || (ifcElev !== null && Math.abs(ifcElev - expElevNum) <= 50);                                  // Use aiLoading/aiDone per maquette to distinguish pending vs missing:
+                                  // - No storeys + aiLoading  => pending (IA running)
+                                  // - No storeys + aiDone     => missing (IA finished but no levels) or na if no expected name
+                                  // - No storeys otherwise    => pending (IA not started yet)
+                                  let overall: 'ok' | 'warning' | 'error' | 'missing' | 'pending' | 'na';
+                                  const storeysCount = (storeys?.length) ?? 0;
+                                  if (storeysCount === 0) {
+                                    if (aiLoading[m.id]) {
+                                      overall = 'pending';
+                                    } else if (aiDone[m.id]) {
+                                      overall = !lvl.name ? 'na' : 'missing';
+                                    } else {
+                                      overall = 'pending';
+                                    }
+                                  } else {
+                                    if (!lvl.name) overall = 'na';
+                                    else if (!found) overall = 'missing';
+                                    else if (nameOk && elevOk) overall = 'ok';
+                                    else if (nameOk) overall = 'warning';
+                                    else overall = 'error';
+                                  }
 
                                   type StatusKey = 'ok' | 'warning' | 'error' | 'missing' | 'pending' | 'na';
                                   const statusStyle: Record<StatusKey, string> = {
