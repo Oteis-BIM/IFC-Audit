@@ -1223,6 +1223,12 @@ export default function Dashboard() {
     if (selectedFiles.length === 0) return alert('Aucun fichier sélectionné');
     if (uploading) return;
 
+    // Vérification discipline obligatoire
+    const missing = selectedFiles.filter(f => !f.discipline.trim());
+    if (missing.length > 0) {
+      return alert(`⚠️ Discipline obligatoire !\n\nVeuillez renseigner la discipline pour :\n${missing.map(f => `• ${f.file.name}`).join('\n')}`);
+    }
+
     // Vérification initiale de la connexion Box
     const tokenCheck = await fetch('/api/box/token');
     if (!tokenCheck.ok) {
@@ -1611,19 +1617,25 @@ export default function Dashboard() {
                           <X className="h-3 w-3" />
                         </button>
                       )}
-                    </div>
-                    {/* Champ discipline */}
+                    </div>                    {/* Champ discipline */}
                     {!sf.done && (
                       <div className="flex items-center gap-2">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide shrink-0 w-20">Discipline</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide shrink-0 w-20">
+                          Discipline <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={sf.discipline}
                           onChange={e => updateFileDiscipline(i, e.target.value)}
                           placeholder="ex: Architecture, Structure, MEP…"
                           disabled={sf.uploading}
-                          className="flex-1 text-xs border border-slate-200 rounded px-2 py-1 bg-white placeholder-slate-300 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+                          className={`flex-1 text-xs border rounded px-2 py-1 bg-white placeholder-slate-300 focus:outline-none focus:border-blue-400 disabled:opacity-50 ${
+                            !sf.discipline.trim() ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                          }`}
                         />
+                        {!sf.discipline.trim() && (
+                          <span className="text-[9px] text-red-500 font-semibold shrink-0">Requis</span>
+                        )}
                       </div>
                     )}
                     {sf.done && sf.discipline && (

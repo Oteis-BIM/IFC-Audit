@@ -114,10 +114,13 @@ IMPORTANT :
 
 Tu retournes UNIQUEMENT un objet JSON valide, sans aucun texte autour, avec cette structure exacte :
 {
-  "B1.2": { "status": "ok", "comment": "FILE_SCHEMA indique IFC2X3, conforme." },
-  "B7.1": { "status": "unclear", "comment": "Vérification visuelle requise, impossible depuis l'extrait IFC." },
+  "1.2": { "status": "ok", "comment": "FILE_SCHEMA indique IFC2X3, conforme." },
+  "6.1": { "status": "unclear", "comment": "Vérification visuelle requise, impossible depuis l'extrait IFC." },
   ...
-}`;
+}
+
+IMPORTANT : Les IDs des critères sont NUMÉRIQUES (ex: "1.1", "2.3", "6.7"), PAS des lettres (pas de "B1.1" ni "C2.3").
+Utilise EXACTEMENT les IDs qui te sont fournis dans la liste des critères, sans les modifier.`;
 
     const userPrompt = `Fichier IFC à analyser :
 Nom du fichier : ${fileName}
