@@ -77,11 +77,8 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
   {
     section: "FICHIER IFC",
     category: "4 — ATTRIBUTS IFC (IfcBuilding)",
-    items: [
-      { id: "4.1", label: "Nom (Name)", expected: "Nom du bâtiment renseigné" },
-      { id: "4.2", label: "Désignation (Description)", expected: "Description du bâtiment renseignée" },
-      { id: "4.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées cohérentes avec IfcSite" },
-      { id: "4.4", label: "Elevation (Élévation Z)", expected: "Élévation de référence du bâtiment renseignée (NGF)" },
+    items: [      { id: "4.1", label: "Nom (Name)", expected: "" },
+      { id: "4.2", label: "Adresse", expected: "" },
     ],
   },
   {
@@ -464,7 +461,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           if (local) setNamingPattern(local);
         }
       });    // Charger les attendus personnalisés
-    const ids = ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5'];
+    const ids = ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5', '4.1', '4.2'];
     ids.forEach(id => {
       const key = `expected_${id}`;
       supabase.from('audit_config').select('value').eq('key', key).maybeSingle()
@@ -900,7 +897,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   </tr>
                                 );
                               }                              // ── 2.1-2.4 / 3.1-3.4 : champ attendu éditable + bouton OK ──
-                              if (['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5'].includes(item.id)) {
+                              if (['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5', '4.1', '4.2'].includes(item.id)) {
                                 const val = customExpected[item.id] ?? '';
                                 const isSaving = customSaving[item.id];
                                 const isSaved = customSaved[item.id];

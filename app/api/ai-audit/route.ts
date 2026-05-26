@@ -59,11 +59,13 @@ interface IfcFacts {
   site: { name: string; description: string } | null;
   siteCoords: { x: number | null; y: number | null; z: number | null; src: string } | null;
   mapConversion: { easting: number | null; northing: number | null; height: number | null } | null;
+  building: { name: string } | null;
+  siteAddress: string | null;
 }
 
 function extractIfcFacts(raw: string): IfcFacts {
   const index = buildEntityIndex(raw);
-  const facts: IfcFacts = { project: null, site: null, siteCoords: null, mapConversion: null };
+  const facts: IfcFacts = { project: null, site: null, siteCoords: null, mapConversion: null, building: null, siteAddress: null };
 
   // IFCPROJECT
   for (const [, body] of index) {
@@ -171,6 +173,31 @@ function extractIfcFacts(raw: string): IfcFacts {
     if (bestCoords) facts.siteCoords = { ...bestCoords, src: 'IFCLOCALPLACEMENT(chaine)->IFCAXIS2PLACEMENT3D->IFCCARTESIANPOINT' };
   }
 
+
+  // IFCBUILDING - Name (critere 4.1)
+  for (const [, body] of index) {
+    if (body.toUpperCase().startsWith('IFCBUILDING(')) {
+      const args = parseArgs(body);
+      facts.building = { name: stepStr(args[2] ?? '') };
+      break;
+    }
+  }
+
+  // IFCPOSTALADDRESS - adresse du site (critere 4.2)
+  for (const [, body] of index) {
+    if (body.toUpperCase().startsWith('IFCPOSTALADDRESS(')) {
+      const args = parseArgs(body);
+      const addrLines = args[4];
+      const town     = stepStr(args[6] ?? '');
+      const zip      = stepStr(args[8] ?? '');
+      const country  = stepStr(args[9] ?? '');
+      const lineMatch = addrLines ? addrLines.match(/\(([^)]+)\)/) : null;
+      const streetParts = lineMatch ? lineMatch[1].split(',').map((s: string) => stepStr(s.trim())).filter(Boolean) : [];
+      const parts = [...streetParts, town, zip, country].filter(Boolean);
+      facts.siteAddress = parts.length > 0 ? parts.join(', ') : null;
+      break;
+    }
+  }
   return facts;
 }
 
