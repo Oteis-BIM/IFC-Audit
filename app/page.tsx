@@ -69,10 +69,9 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
     category: "3 — ATTRIBUTS SITE (IfcSite)",
     items: [
       { id: "3.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
-      { id: "3.2", label: "Description (Description)", expected: "Description du site renseignée" },
-      { id: "3.3", label: "Coordonnées N/S (Global Y)", expected: "Coordonnée Nord/Sud renseignée (RGF93 / Lambert 93)" },
-      { id: "3.4", label: "Coordonnées E/O (Global X)", expected: "Coordonnée Est/Ouest renseignée (RGF93 / Lambert 93)" },
-      { id: "3.5", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
+      { id: "3.2", label: "Description (Description)", expected: "Description du site renseignée" },      { id: "3.3", label: "Coordonnées N/S (Global Y) (en mm)", expected: "Coordonnée Nord/Sud renseignée (RGF93 / Lambert 93)" },
+      { id: "3.4", label: "Coordonnées E/O (Global X) (en mm)", expected: "Coordonnée Est/Ouest renseignée (RGF93 / Lambert 93)" },
+      { id: "3.5", label: "Elevation (Élévation Z) (en mm)", expected: "Élévation NGF renseignée" },
     ],
   },
   {

@@ -155,17 +155,20 @@ Les positions des champs :
   3 = Description → critère 3.2 "Description"
   7 = ObjectPlacement (référence #N vers IFCLOCALPLACEMENT)
 
-Pour les coordonnées Global X, Y, Z (critères 3.3, 3.4, 3.5) :
-- Cherche la référence de placement de l'IFCSITE (champ 7, ex: #42)
-- Suis la chaîne : IFCLOCALPLACEMENT → IFCAXIS2PLACEMENT3D → IFCCARTESIANPOINT
-- Le IFCCARTESIANPOINT contient les coordonnées sous la forme : IFCCARTESIANPOINT((X,Y,Z))
-  - X = Global X (Est/Ouest)  → critère 3.4
+Pour les coordonnées Global X, Y, Z (critères 3.3, 3.4, 3.5) — MÉTHODE STRICTE :
+Étape 1 : Trouve la ligne IFCSITE dans l'extrait. Note le numéro de référence en position 7 (ObjectPlacement), ex: si la ligne est "#10= IFCSITE(...,#42,...)" → le placement est #42.
+Étape 2 : Trouve la ligne "#42= IFCLOCALPLACEMENT(...)". Dans cette ligne, note la référence du placement relatif (2e argument), ex: "#43= IFCAXIS2PLACEMENT3D(...)".
+Étape 3 : Trouve la ligne "#43= IFCAXIS2PLACEMENT3D(#44,...)". Note la référence du point (1er argument), ex: #44.
+Étape 4 : Trouve la ligne "#44= IFCCARTESIANPOINT((X.,Y.,Z.))". Les coordonnées X, Y, Z sont en MILLIMÈTRES.
   - Y = Global Y (Nord/Sud)   → critère 3.3
+  - X = Global X (Est/Ouest)  → critère 3.4
   - Z = Global Z (Élévation)  → critère 3.5
-- Si la valeur "Attendu" est un nombre, compare-la numériquement à la valeur trouvée
-- Si la valeur "Attendu" est une description textuelle (ex: "Élévation NGF renseignée"), vérifie simplement que la valeur est non nulle et non zéro
-- Si le placement est absent ou les coordonnées sont toutes à 0. → "warning" (peut être volontaire)
-- Toujours indiquer dans le commentaire : la valeur trouvée dans le fichier et la valeur attendue
+
+ATTENTION : Ne pas prendre n'importe quel IFCCARTESIANPOINT. Suivre STRICTEMENT la chaîne depuis IFCSITE.
+- Si la valeur "Attendu" est un nombre (ex: "1371437363"), compare-la numériquement à la valeur trouvée (en mm)
+- Si les valeurs sont égales → "ok" ; si différentes → "error" avec les deux valeurs dans le commentaire
+- Si coordonnées toutes à 0 → "warning" (peut être volontaire ou erreur)
+- Toujours indiquer dans le commentaire : la valeur exacte trouvée dans le fichier et la valeur attendue
 
 Tu retournes UNIQUEMENT un objet JSON valide, sans aucun texte autour, avec cette structure exacte :
 {
@@ -187,7 +190,7 @@ ${criteriaText}
 Instructions de lecture du fichier IFC :
 - Critères 2.1/2.2/2.3/2.4 : cherche la ligne IFCPROJECT, extrais Name (pos 2), LongName (pos 5), Description (pos 3), Phase (pos 6) et compare aux valeurs attendues.
 - Critères 3.1/3.2 : cherche la ligne IFCSITE, extrais Name (pos 2) et Description (pos 3) et compare aux valeurs attendues.
-- Critères 3.3/3.4/3.5 : cherche la ligne IFCSITE, suis la référence de placement (#N au pos 7) → IFCLOCALPLACEMENT → IFCAXIS2PLACEMENT3D → IFCCARTESIANPOINT((X,Y,Z)). Y=Nord/Sud (3.3), X=Est/Ouest (3.4), Z=Élévation (3.5).
+- Critères 3.3/3.4/3.5 : cherche IFCSITE → note la ref #N en pos 7 → cherche cette ligne IFCLOCALPLACEMENT → note la ref IFCAXIS2PLACEMENT3D → note la ref IFCCARTESIANPOINT → lis les coordonnées ((X,Y,Z)) en mm. Y=Nord/Sud (3.3), X=Est/Ouest (3.4), Z=Élévation (3.5). NE PAS utiliser un IFCCARTESIANPOINT aléatoire.
 
 Extrait du contenu IFC :
 \`\`\`
