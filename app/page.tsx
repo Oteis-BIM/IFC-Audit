@@ -748,8 +748,17 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-violet-50 text-violet-400 rounded flex items-center justify-center font-bold text-[10px]">?</span> À vérifier manuellement</span>
           </div>          <div className="space-y-5">
-            {RAPPORT_CATEGORIES.map(cat => {              // ── Carte 5 : tableau niveaux spécial ──────────────────────────
+            {RAPPORT_CATEGORIES.map(cat => {
+              // ── Carte 5 : tableau niveaux spécial ──────────────────────────
               if (cat.category.startsWith('5 —')) {
+                // Collect all unique IFC level names across all maquettes for the select options
+                const allIfcLevelNames = Array.from(
+                  new Set(
+                    maquettes.flatMap(m => (ifcStoreys[m.id] ?? []).map(s => s.name))
+                  )
+                );
+                const hasAnyStoreys = maquettes.some(m => (ifcStoreys[m.id]?.length ?? 0) > 0);
+
                 return (
                   <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="bg-blue-600 px-5 py-3">
@@ -759,147 +768,219 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
                         <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200">
-                            <th className="text-left px-3 py-2 font-bold text-slate-400 w-8">#</th>
-                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[160px]">
-                              Nom attendu
+                          <tr className="bg-slate-50 border-b-2 border-slate-200">
+                            <th className="text-left px-3 py-2.5 font-bold text-slate-400 w-8">#</th>
+                            <th className="text-left px-3 py-2.5 font-bold text-slate-700 uppercase tracking-wide text-[10px] min-w-[170px]">
+                              NOM NIVEAU IFC
                             </th>
-                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[130px]">
-                              Élévation attendue (mm)
+                            <th className="text-right px-3 py-2.5 font-bold text-slate-700 uppercase tracking-wide text-[10px] min-w-[110px]">
+                              ALT. NIVEAU
                             </th>
                             {maquettes.map(m => {
                               const { discipline } = parseMaquetteDetails(m.details);
                               return (
-                                <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[220px]">
+                                <th key={m.id} className="text-center px-3 py-2.5 font-bold text-slate-600 min-w-[90px]">
                                   {discipline && <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">{discipline}</div>}
-                                  <span className="text-[10px] font-medium text-slate-500" title={m.project_name}>
-                                    {m.project_name.replace(/\.ifc$/i, '').slice(0, 16)}
+                                  <span className="text-[10px] font-medium text-slate-500 block truncate max-w-[80px] mx-auto" title={m.project_name}>
+                                    {m.project_name.replace(/\.ifc$/i, '').slice(0, 14)}
                                   </span>
-                                  <div className="flex text-[9px] text-slate-400 font-normal mt-0.5 justify-center gap-4">
-                                    <span>Nom IFC trouvé</span><span>Élév. IFC (mm)</span><span>Statut</span>
-                                  </div>
                                 </th>
                               );
                             })}
-                            {maquettes.length === 0 && <th className="text-center px-3 py-2 text-slate-300 italic font-normal">← Chargez des maquettes</th>}
+                            {maquettes.length === 0 && (
+                              <th className="text-center px-3 py-2.5 text-slate-300 italic font-normal text-[10px]">← Chargez des maquettes</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody>
-                          {expectedLevels.map((lvl, i) => (
-                            <tr key={i} className={`border-t border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                              <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle">{i + 1}</td>
-                              <td className="px-3 py-2 align-middle">
-                                <input
-                                  type="text"
-                                  value={lvl.name}
-                                  onChange={e => setExpectedLevels(prev => prev.map((l, j) => j === i ? { ...l, name: e.target.value } : l))}
-                                  placeholder="ex: RDC, R+1…"
-                                  className="w-full text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
-                                />
-                              </td>
-                              <td className="px-3 py-2 align-middle">
-                                <input
-                                  type="text"
-                                  value={lvl.elevation}
-                                  onChange={e => setExpectedLevels(prev => prev.map((l, j) => j === i ? { ...l, elevation: e.target.value } : l))}
-                                  placeholder="ex: 0, 3200…"
-                                  className="w-full text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
-                                />
-                              </td>
-                              {maquettes.map(m => {
-                                const storeys = ifcStoreys[m.id] ?? [];
-                                // Chercher le niveau IFC correspondant par nom (insensible casse) ou par index
-                                const found = storeys.find(s =>
-                                  lvl.name && s.name.toLowerCase() === lvl.name.toLowerCase()
-                                ) ?? storeys[i] ?? null;
-
-                                const expElev = lvl.elevation ? parseFloat(lvl.elevation) : null;
-                                const ifcElev = found?.elevation ?? null;
-
-                                // Statut nom
-                                const nameOk = !lvl.name || (found && found.name.toLowerCase() === lvl.name.toLowerCase());
-                                // Statut élévation (en mm, tolérance 1mm)
-                                const elevOk = expElev === null || (ifcElev !== null && Math.abs(ifcElev - expElev) <= 1);
-
-                                const overall = !found
-                                  ? 'missing'
-                                  : nameOk && elevOk ? 'ok'
-                                  : nameOk || elevOk ? 'warning'
-                                  : 'error';
-
-                                const statusStyle: Record<string, string> = {
-                                  ok:      'bg-emerald-100 text-emerald-700',
-                                  warning: 'bg-orange-100 text-orange-600',
-                                  error:   'bg-red-100 text-red-600',
-                                  missing: 'bg-slate-100 text-slate-400',
-                                };
-                                const statusLabel: Record<string, string> = {
-                                  ok: '✓', warning: '⚠', error: '✗', missing: '—',
-                                };
-
-                                return (
-                                  <td key={m.id} className="px-2 py-2 align-middle">
-                                    {storeys.length === 0 ? (
-                                      <span className="text-slate-300 italic text-[10px]">Lancer l&apos;analyse IA</span>
-                                    ) : (
-                                      <div className="flex items-center gap-2">
-                                        <span className={`text-[10px] font-mono truncate max-w-[80px] px-1.5 py-0.5 rounded ${found ? 'text-slate-700 bg-slate-50 border border-slate-200' : 'text-slate-300 italic'}`} title={found?.name}>
-                                          {found?.name || '—'}
-                                        </span>
-                                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${ifcElev !== null ? 'text-slate-700 bg-slate-50 border border-slate-200' : 'text-slate-300'}`}>
-                                          {ifcElev !== null ? ifcElev.toLocaleString() : '—'}
-                                        </span>
-                                        <span className={`w-7 h-7 rounded flex items-center justify-center text-[11px] font-bold shrink-0 ${statusStyle[overall]}`}>
-                                          {statusLabel[overall]}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </td>
+                          {expectedLevels.map((lvl, i) => {
+                            // Auto-fill elevation from first maquette that has this level
+                            const autoElev: number | null = (() => {
+                              if (!lvl.name) return null;
+                              for (const m of maquettes) {
+                                const found = (ifcStoreys[m.id] ?? []).find(
+                                  s => s.name.toLowerCase() === lvl.name.toLowerCase()
                                 );
-                              })}
-                              {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
-                            </tr>
-                          ))}
+                                if (found && found.elevation !== null) return found.elevation;
+                              }
+                              return null;
+                            })();
+                            const displayElev = lvl.elevation
+                              ? lvl.elevation
+                              : autoElev !== null
+                              ? (autoElev / 1000).toFixed(3)
+                              : '';
+
+                            return (
+                              <tr key={i} className={`border-t border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                                <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle">{i + 1}</td>
+
+                                {/* NOM NIVEAU IFC */}
+                                <td className="px-3 py-2 align-middle">
+                                  {hasAnyStoreys ? (
+                                    <select
+                                      value={lvl.name}
+                                      onChange={e => setExpectedLevels(prev => prev.map((l, j) =>
+                                        j === i ? { ...l, name: e.target.value, elevation: '' } : l
+                                      ))}
+                                      className={`w-full text-xs border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white cursor-pointer ${
+                                        lvl.name ? 'border-blue-200 text-slate-800 font-semibold' : 'border-slate-200 text-slate-400'
+                                      }`}
+                                    >
+                                      <option value="">— Absent / choisir —</option>
+                                      {allIfcLevelNames.map(name => (
+                                        <option key={name} value={name}>{name}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={lvl.name}
+                                      onChange={e => setExpectedLevels(prev => prev.map((l, j) =>
+                                        j === i ? { ...l, name: e.target.value } : l
+                                      ))}
+                                      placeholder="ex: RDC, R+1…"
+                                      className="w-full text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
+                                    />
+                                  )}
+                                </td>
+
+                                {/* ALT. NIVEAU */}
+                                <td className="px-3 py-2 align-middle">
+                                  {hasAnyStoreys && !lvl.elevation && autoElev !== null ? (
+                                    <span className="block text-right text-xs font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 select-none">
+                                      {(autoElev / 1000).toFixed(3)}
+                                    </span>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={lvl.elevation}
+                                      onChange={e => setExpectedLevels(prev => prev.map((l, j) =>
+                                        j === i ? { ...l, elevation: e.target.value } : l
+                                      ))}
+                                      placeholder={hasAnyStoreys ? (autoElev !== null ? (autoElev / 1000).toFixed(3) : '—') : 'ex: 58.450'}
+                                      className="w-full text-right text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
+                                    />
+                                  )}
+                                </td>
+
+                                {/* Statut par maquette */}
+                                {maquettes.map(m => {
+                                  const storeys = ifcStoreys[m.id] ?? [];
+                                  const found = storeys.find(s =>
+                                    lvl.name && s.name.toLowerCase() === lvl.name.toLowerCase()
+                                  ) ?? (!lvl.name ? null : null);
+
+                                  const expElevNum = displayElev ? parseFloat(displayElev) * 1000 : null;
+                                  const ifcElev = found?.elevation ?? null;
+                                  const nameOk = !!lvl.name && !!found;
+                                  const elevOk = expElevNum === null || (ifcElev !== null && Math.abs(ifcElev - expElevNum) <= 50);
+
+                                  const overall = storeys.length === 0
+                                    ? 'pending'
+                                    : !lvl.name
+                                    ? 'na'
+                                    : !found
+                                    ? 'missing'
+                                    : nameOk && elevOk ? 'ok'
+                                    : nameOk ? 'warning'
+                                    : 'error';
+
+                                  type StatusKey = 'ok' | 'warning' | 'error' | 'missing' | 'pending' | 'na';
+                                  const statusStyle: Record<StatusKey, string> = {
+                                    ok:      'bg-emerald-100 text-emerald-700 border border-emerald-200',
+                                    warning: 'bg-orange-100 text-orange-600 border border-orange-200',
+                                    error:   'bg-red-100 text-red-600 border border-red-200',
+                                    missing: 'bg-red-50 text-red-400 border border-red-100',
+                                    pending: 'bg-slate-100 text-slate-300',
+                                    na:      'bg-slate-50 text-slate-300',
+                                  };
+                                  const statusLabel: Record<StatusKey, string> = {
+                                    ok: '✓', warning: '⚠', error: '✗', missing: '✗', pending: '…', na: '—',
+                                  };
+                                  const statusTitle: Record<StatusKey, string> = {
+                                    ok: 'Nom et altimétrie conformes',
+                                    warning: `Nom trouvé mais altimétrie non conforme${ifcElev !== null ? ` (IFC: ${(ifcElev/1000).toFixed(3)})` : ''}`,
+                                    error: 'Non conforme',
+                                    missing: 'Niveau absent dans ce fichier IFC',
+                                    pending: 'Lancer l\'analyse IA pour extraire les niveaux',
+                                    na: '—',
+                                  };
+
+                                  return (
+                                    <td key={m.id} className="px-3 py-2 text-center align-middle">
+                                      <span
+                                        title={statusTitle[overall as StatusKey]}
+                                        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-[12px] font-bold cursor-default ${statusStyle[overall as StatusKey]}`}
+                                      >
+                                        {statusLabel[overall as StatusKey]}
+                                      </span>
+                                      {found && overall !== 'ok' && ifcElev !== null && (
+                                        <div className="text-[9px] text-slate-400 font-mono mt-0.5">{(ifcElev/1000).toFixed(3)}</div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                                {maquettes.length === 0 && (
+                                  <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                                )}
+                              </tr>
+                            );
+                          })}
                         </tbody>
                         <tfoot>
                           <tr className="border-t border-slate-200 bg-slate-50">
-                            <td colSpan={3 + maquettes.length} className="px-3 py-2 flex items-center gap-4">
-                              <button
-                                onClick={() => setExpectedLevels(prev => [...prev, { name: '', elevation: '' }])}
-                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors"
-                              >
-                                + Ajouter un niveau
-                              </button>
-                              {expectedLevels.length > 1 && (
+                            <td colSpan={3 + maquettes.length} className="px-3 py-2">
+                              <div className="flex items-center gap-4">
                                 <button
-                                  onClick={() => setExpectedLevels(prev => prev.slice(0, -1))}
-                                  className="text-xs text-red-400 hover:text-red-600 font-semibold transition-colors"
+                                  onClick={() => setExpectedLevels(prev => [...prev, { name: '', elevation: '' }])}
+                                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors"
                                 >
-                                  − Supprimer le dernier
+                                  + Ajouter un niveau
                                 </button>
-                              )}
+                                {expectedLevels.length > 1 && (
+                                  <button
+                                    onClick={() => setExpectedLevels(prev => prev.slice(0, -1))}
+                                    className="text-xs text-red-400 hover:text-red-600 font-semibold transition-colors"
+                                  >
+                                    − Supprimer le dernier
+                                  </button>
+                                )}
+                                {hasAnyStoreys && (
+                                  <span className="ml-auto text-[10px] text-slate-400">
+                                    Alt. en mètres (NGF) · tolérance ±50 mm
+                                  </span>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         </tfoot>
                       </table>
                     </div>
-                    {/* Niveaux IFC trouvés dans la maquette mais non attendus */}
-                    {maquettes.some(m => (ifcStoreys[m.id]?.length ?? 0) > 0) && (
+
+                    {/* Niveaux IFC extraits — section synthèse */}
+                    {hasAnyStoreys && (
                       <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60">
-                        <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-wide">Niveaux IFC extraits</p>
-                        <div className="flex flex-wrap gap-4">
+                        <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-wide">
+                          Niveaux IFC extraits
+                        </p>
+                        <div className="flex flex-wrap gap-6">
                           {maquettes.map(m => {
                             const storeys = ifcStoreys[m.id];
                             if (!storeys?.length) return null;
                             const { discipline } = parseMaquetteDetails(m.details);
                             return (
                               <div key={m.id} className="text-[10px]">
-                                <p className="font-semibold text-blue-600 mb-1">{discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 14)}</p>
+                                <p className="font-semibold text-blue-600 mb-1.5">
+                                  {discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 14)}
+                                </p>
                                 <div className="flex flex-col gap-0.5">
                                   {storeys.map((s, si) => (
-                                    <span key={si} className="font-mono text-slate-600 bg-white border border-slate-200 rounded px-2 py-0.5">
-                                      {s.name || '(sans nom)'} — {s.elevation !== null ? `${s.elevation.toLocaleString()} mm` : '—'}
-                                    </span>
+                                    <div key={si} className="flex items-center gap-2 font-mono text-slate-600 bg-white border border-slate-200 rounded px-2 py-1">
+                                      <span className="font-semibold text-slate-700 min-w-[60px]">{s.name || '(sans nom)'}</span>
+                                      <span className="text-slate-400">·</span>
+                                      <span className="text-blue-700">{s.elevation !== null ? `${(s.elevation / 1000).toFixed(3)} m` : '—'}</span>
+                                    </div>
                                   ))}
                                 </div>
                               </div>
