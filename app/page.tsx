@@ -450,10 +450,11 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const [patternSaved, setPatternSaved] = useState(false);
   const [customExpected, setCustomExpected] = useState<Record<string, string>>({});
   const [customSaving, setCustomSaving] = useState<Record<string, boolean>>({});
-  const [customSaved, setCustomSaved] = useState<Record<string, boolean>>({});
-  const [aiLoading, setAiLoading] = useState<Record<number, boolean>>({});
+  const [customSaved, setCustomSaved] = useState<Record<string, boolean>>({});  const [aiLoading, setAiLoading] = useState<Record<number, boolean>>({});
   const [aiError, setAiError] = useState<Record<number, string>>({});
-  const [aiDone, setAiDone] = useState<Record<number, boolean>>({});  // Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
+  const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
+  const [aiProgress, setAiProgress] = useState<Record<number, number>>({});
+  const aiProgressRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
     supabase.from('audit_config').select('value').eq('key', 'naming_pattern').maybeSingle()
       .then(({ data, error }) => {
@@ -516,10 +517,24 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   async function runAiAudit(audit: Audit) {
     if (!audit.details?.startsWith('box:')) return;
     const { fileId, discipline } = parseMaquetteDetails(audit.details);
-    if (!fileId) return;
-    setAiLoading(prev => ({ ...prev, [audit.id]: true }));
+    if (!fileId) return;    setAiLoading(prev => ({ ...prev, [audit.id]: true }));
     setAiError(prev => ({ ...prev, [audit.id]: '' }));
-    setAiDone(prev => ({ ...prev, [audit.id]: false }));    try {
+    setAiDone(prev => ({ ...prev, [audit.id]: false }));
+    setAiProgress(prev => ({ ...prev, [audit.id]: 0 }));
+
+    // Simulation de progression 0 → 90% pendant l'analyse
+    const id = audit.id;
+    aiProgressRef.current[id] = setInterval(() => {
+      setAiProgress(prev => {
+        const current = prev[id] ?? 0;
+        if (current >= 90) return prev;
+        // Progression rapide au début, puis ralentit
+        const increment = current < 40 ? 4 : current < 70 ? 2 : 0.8;
+        return { ...prev, [id]: Math.min(90, current + increment) };
+      });
+    }, 300);
+
+    try {
       // Construire la liste des critères avec les valeurs attendues (customExpected pour 2.1-2.4)
       const criteria = RAPPORT_CATEGORIES.flatMap(cat =>
         cat.items.map(item => ({
@@ -552,10 +567,13 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           if (val.comment) next[`${itemId}-${audit.id}`] = val.comment;
         }
         return next;
-      });
-      setAiDone(prev => ({ ...prev, [audit.id]: true }));
+      });      setAiDone(prev => ({ ...prev, [audit.id]: true }));
+      clearInterval(aiProgressRef.current[audit.id]);
+      setAiProgress(prev => ({ ...prev, [audit.id]: 100 }));
     } catch (err: unknown) {
       setAiError(prev => ({ ...prev, [audit.id]: err instanceof Error ? err.message : String(err) }));
+      clearInterval(aiProgressRef.current[audit.id]);
+      setAiProgress(prev => ({ ...prev, [audit.id]: 0 }));
     } finally {
       setAiLoading(prev => ({ ...prev, [audit.id]: false }));
     }
@@ -684,10 +702,10 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
               </div>
               {maquettes.map(m => {
                 const { discipline } = parseMaquetteDetails(m.details);
-                const label = discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 16);
-                const isLoading = aiLoading[m.id];
+                const label = discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 16);                const isLoading = aiLoading[m.id];
                 const isDone = aiDone[m.id];
                 const error = aiError[m.id];
+                const progress = aiProgress[m.id] ?? 0;
                 return (
                   <div key={m.id} className="flex flex-col gap-1">
                     <button
@@ -708,6 +726,18 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                         : <><Sparkles className="h-3.5 w-3.5" /> Analyser {label}</>
                       }
                     </button>
+                    {/* Barre de progression */}
+                    {(isLoading || (isDone && progress === 100)) && (
+                      <div className="w-full h-1.5 bg-violet-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${isDone ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    )}
+                    {isLoading && (
+                      <p className="text-[9px] text-violet-400 text-center leading-tight">{Math.round(progress)}%</p>
+                    )}
                     {error && <p className="text-[10px] text-red-500 max-w-[200px] leading-tight">{error}</p>}
                   </div>
                 );
