@@ -84,10 +84,8 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
   {
     section: "FICHIER IFC",
     category: "5 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
-    items: [
-      { id: "5.1", label: "Adressage", expected: "Nommage conforme à la convention (RDC, R+1…)" },
-      { id: "5.2", label: "Description (Description)", expected: "Description du niveau renseignée" },
-      { id: "5.3", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
+    items: [      { id: "5.1", label: "Nom (Name)", expected: "Nommage conforme à la convention (RDC, R+1…)" },
+      { id: "5.2", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
     ],
   },
   {
