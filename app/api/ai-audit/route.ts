@@ -39,9 +39,23 @@ function extractIfcContent(raw: string): string {
     'FILE_DESCRIPTION', 'FILE_NAME', 'FILE_SCHEMA',
   ];
 
+  // Priorité : s'assurer que IFCPROJECT est toujours inclus en entier
+  // même s'il dépasse la limite de 300 lignes
+  const ifcProjectLines: string[] = [];
+  for (const line of lines) {
+    if (line.toUpperCase().includes('IFCPROJECT(')) {
+      ifcProjectLines.push(line);
+    }
+  }
+
   for (let i = 60; i < lines.length && kept.length < 300; i++) {
     const upper = lines[i].toUpperCase();
     if (keywords.some(k => upper.includes(k))) kept.push(lines[i]);
+  }
+
+  // Ajouter les lignes IFCPROJECT si pas déjà présentes
+  for (const l of ifcProjectLines) {
+    if (!kept.includes(l)) kept.push(l);
   }
 
   return kept.join('\n').slice(0, MAX_IFC_CHARS);
@@ -94,9 +108,7 @@ export async function POST(req: NextRequest) {
       `- ${c.id} | ${c.label} | Attendu : ${c.expected}`
     ).join('\n');
 
-    const criteriaIds = criteriaList.map(c => c.id).join(', ');
-
-    const systemPrompt = `Tu es un expert BIM et auditeur de maquettes IFC selon le référentiel OTEIS.
+    const criteriaIds = criteriaList.map(c => c.id).join(', ');    const systemPrompt = `Tu es un expert BIM et auditeur de maquettes IFC selon le référentiel OTEIS.
 Tu analyses un extrait d'un fichier IFC (format STEP ISO 10303-21) et tu évalues la conformité de chaque critère fourni.
 
 Pour chaque critère, tu retournes OBLIGATOIREMENT un statut parmi :
@@ -106,28 +118,53 @@ Pour chaque critère, tu retournes OBLIGATOIREMENT un statut parmi :
 - "na" : critère non applicable pour cette discipline ou ce type de fichier
 - "unclear" : l'attendu est trop vague ou le critère ne peut pas être vérifié depuis un fichier IFC (ex : vérification visuelle, clash détection, règles de modélisation subjectives)
 
-IMPORTANT : 
+IMPORTANT :
 - Utilise "unclear" si l'attendu nécessite une intervention humaine ou une vérification visuelle
 - Utilise "na" uniquement si le critère est clairement hors périmètre pour cette discipline
 - Ne devine pas : si tu ne peux pas vérifier depuis l'extrait IFC, dis "unclear"
 - Le commentaire doit expliquer précisément ce que tu as trouvé (ou pas trouvé) dans le fichier
 
+## Analyse de l'entité IFCPROJECT (critères 2.1, 2.2, 2.3, 2.4)
+
+L'entité IFCPROJECT dans un fichier IFC STEP a la forme :
+  #N= IFCPROJECT('GlobalId','OwnerHistory','Name','Description','ObjectType','LongName','Phase',(...),(#...));
+
+Les positions des champs sont (index 0-based après la parenthèse ouvrante) :
+  0 = GlobalId (GUID)
+  1 = OwnerHistory
+  2 = Name  → critère 2.1 "Code (Name)"
+  3 = Description → critère 2.3
+  4 = ObjectType
+  5 = LongName → critère 2.2
+  6 = Phase → critère 2.4
+
+Pour les critères 2.1, 2.2, 2.3, 2.4 :
+- Extrais la valeur réelle du champ correspondant dans la ligne IFCPROJECT (entre apostrophes)
+- Compare-la à la valeur "Attendu" fournie (qui est la valeur exacte saisie par l'utilisateur)
+- Si la valeur réelle correspond (ou est cohérente avec) la valeur attendue → "ok"
+- Si la valeur est présente mais ne correspond pas à l'attendu → "error", précise les deux valeurs dans le commentaire
+- Si le champ est vide (''), $, ou absent → "error", précise que le champ est vide
+- Toujours indiquer dans le commentaire : valeur trouvée dans le fichier et valeur attendue
+
 Tu retournes UNIQUEMENT un objet JSON valide, sans aucun texte autour, avec cette structure exacte :
 {
   "1.2": { "status": "ok", "comment": "FILE_SCHEMA indique IFC2X3, conforme." },
+  "2.1": { "status": "ok", "comment": "Name trouvé : 'OTEIS_PRJ_001' — correspond à la valeur attendue." },
+  "2.2": { "status": "error", "comment": "LongName vide ('') — attendu : 'Projet Hôpital Nord'." },
   "6.1": { "status": "unclear", "comment": "Vérification visuelle requise, impossible depuis l'extrait IFC." },
   ...
 }
 
 IMPORTANT : Les IDs des critères sont NUMÉRIQUES (ex: "1.1", "2.3", "6.7"), PAS des lettres (pas de "B1.1" ni "C2.3").
-Utilise EXACTEMENT les IDs qui te sont fournis dans la liste des critères, sans les modifier.`;
-
-    const userPrompt = `Fichier IFC à analyser :
+Utilise EXACTEMENT les IDs qui te sont fournis dans la liste des critères, sans les modifier.`;    const userPrompt = `Fichier IFC à analyser :
 Nom du fichier : ${fileName}
 Discipline : ${discipline || 'non précisée'}
 
 Critères à évaluer (ID | Libellé | Attendu) :
 ${criteriaText}
+
+Note pour les critères 2.1/2.2/2.3/2.4 : la valeur "Attendu" est la valeur exacte saisie par l'utilisateur.
+Cherche la ligne IFCPROJECT dans l'extrait ci-dessous, extrais les champs Name (pos 2), LongName (pos 5), Description (pos 3), Phase (pos 6) et compare-les.
 
 Extrait du contenu IFC :
 \`\`\`

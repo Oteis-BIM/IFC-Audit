@@ -519,10 +519,14 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
     if (!fileId) return;
     setAiLoading(prev => ({ ...prev, [audit.id]: true }));
     setAiError(prev => ({ ...prev, [audit.id]: '' }));
-    setAiDone(prev => ({ ...prev, [audit.id]: false }));
-    try {      // Construire la liste des critères vérifiables automatiquement avec leur attendu
+    setAiDone(prev => ({ ...prev, [audit.id]: false }));    try {
+      // Construire la liste des critères avec les valeurs attendues (customExpected pour 2.1-2.4)
       const criteria = RAPPORT_CATEGORIES.flatMap(cat =>
-        cat.items.map(item => ({ id: item.id, label: item.label, expected: item.expected }))
+        cat.items.map(item => ({
+          id: item.id,
+          label: item.label,
+          expected: customExpected[item.id]?.trim() || item.expected,
+        }))
       );
       const res = await fetch('/api/ai-audit', {
         method: 'POST',
