@@ -122,9 +122,9 @@ function extractIfcFacts(raw: string): IfcFacts {
     if (!coordStr) return null;
     const parts = coordStr.split(',').map((s: string) => parseFloat(s.trim()));
     return {
-      x: isNaN(parts[0]) ? null : parts[0],
-      y: isNaN(parts[1]) ? null : parts[1],
-      z: isNaN(parts[2]) ? null : parts[2],
+      x: isNaN(parts[0]) ? null : Math.round(parts[0] * 1000),
+      y: isNaN(parts[1]) ? null : Math.round(parts[1] * 1000),
+      z: isNaN(parts[2]) ? null : Math.round(parts[2] * 1000),
     };
   }
 
@@ -262,8 +262,8 @@ export async function POST(req: NextRequest) {
       '### Coordonnees georeferenceees IFCSITE :',
       coords
         ? [
-            `- Global Y / Nord-Sud  (critere 3.3) : ${coords.y} mm`,
-            `- Global X / Est-Ouest (critere 3.4) : ${coords.x} mm`,
+            `- Global Y / Nord-Sud  (critere 3.3) : ${coords.x} mm`,
+            `- Global X / Est-Ouest (critere 3.4) : ${coords.y} mm`,
             `- Global Z / Elevation (critere 3.5) : ${coords.z} mm`,
             `- Source : ${coords.src}`,
           ].join('\n')
