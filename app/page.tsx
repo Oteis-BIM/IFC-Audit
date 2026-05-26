@@ -449,6 +449,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const [expectedLevels, setExpectedLevels] = useState<{ name: string; elevation: string }[]>([
     { name: '', elevation: '' },
   ]);
+  const [levelsSaving, setLevelsSaving] = useState(false);
+  const [levelsSaved, setLevelsSaved] = useState(false);
   // Niveaux trouvés par l'IA pour chaque maquette : maqId -> storeys[]
   const [ifcStoreys, setIfcStoreys] = useState<Record<number, { name: string; elevation: number | null }[]>>({});// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
@@ -470,6 +472,18 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           if (val) setCustomExpected(prev => ({ ...prev, [id]: val }));
         });
     });
+
+    // Charger les niveaux attendus de la Carte 5
+    supabase.from('audit_config').select('value').eq('key', 'expected_levels').maybeSingle()
+      .then(({ data, error }) => {
+        const raw = data?.value ?? (error ? localStorage.getItem('expected_levels') : null);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) setExpectedLevels(parsed);
+          } catch { /* ignore */ }
+        }
+      });
   }, []);
 
   async function saveNamingPattern() {
@@ -492,9 +506,23 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
       setPatternSaved(true);
       setTimeout(() => setPatternSaved(false), 2500);
     }
-  }
-  const setCell = (itemId: string, maqId: number, val: CellStatus) =>
+  }  const setCell = (itemId: string, maqId: number, val: CellStatus) =>
     setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
+
+  async function saveExpectedLevels() {
+    setLevelsSaving(true);
+    setLevelsSaved(false);
+    const value = JSON.stringify(expectedLevels);
+    localStorage.setItem('expected_levels', value);
+    const { error } = await supabase.from('audit_config').upsert(
+      { key: 'expected_levels', value },
+      { onConflict: 'key' }
+    );
+    setLevelsSaving(false);
+    if (error) console.warn('Supabase indisponible, sauvegardé en localStorage :', error.message);
+    setLevelsSaved(true);
+    setTimeout(() => setLevelsSaved(false), 2500);
+  }
 
   async function saveCustomExpected(itemId: string) {
     const value = customExpected[itemId]?.trim();
@@ -955,12 +983,25 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   >
                                     − Supprimer le dernier
                                   </button>
-                                )}
-                                {hasAnyStoreys && (
+                                )}                                {hasAnyStoreys && (
                                   <span className="ml-auto text-[10px] text-slate-400">
                                     Alt. en mètres (NGF) · tolérance ±50 mm
                                   </span>
                                 )}
+                                <button
+                                  onClick={saveExpectedLevels}
+                                  disabled={levelsSaving}
+                                  className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                    levelsSaved
+                                      ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                      : levelsSaving
+                                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
+                                      : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                                  }`}
+                                  title="Sauvegarder les niveaux attendus sur Supabase"
+                                >
+                                  {levelsSaved ? '✓ Sauvegardé' : levelsSaving ? '…' : '💾 Sauvegarder'}
+                                </button>
                               </div>
                             </td>
                           </tr>
