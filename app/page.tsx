@@ -59,9 +59,8 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
   },  {
     section: "FICHIER IFC",
     category: "2 — ATTRIBUTS PROJET (IfcProject)",
-    items: [
-      { id: "2.1", label: "Localisation", expected: "Champ renseigné avec l'adresse du projet" },
-      { id: "2.2", label: "Code Phases", expected: "Code phase conforme (EXE, PRO, DCE…)" },
+    items: [      { id: "2.1", label: "Code (Name)", expected: "Code du projet (ex: OTEIS_PRJ_001)" },
+      { id: "2.2", label: "LongName", expected: "Nom long du projet renseigné" },
       { id: "2.3", label: "Description (Description)", expected: "Description explicite du contenu du fichier" },
       { id: "2.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
     ],
@@ -445,25 +444,35 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   onDelete: (id: number) => void;
   chapitresOnly?: boolean;
 }){  const maquettes = audits.slice(0, 6);  const [cells, setCells] = useState<Record<string, CellStatus>>({});
-  const [aiComments, setAiComments] = useState<Record<string, string>>({});
-  const [namingPattern, setNamingPattern] = useState('');
+  const [aiComments, setAiComments] = useState<Record<string, string>>({});  const [namingPattern, setNamingPattern] = useState('');
   const [patternSaving, setPatternSaving] = useState(false);
   const [patternSaved, setPatternSaved] = useState(false);
+  const [customExpected, setCustomExpected] = useState<Record<string, string>>({});
+  const [customSaving, setCustomSaving] = useState<Record<string, boolean>>({});
+  const [customSaved, setCustomSaved] = useState<Record<string, boolean>>({});
   const [aiLoading, setAiLoading] = useState<Record<number, boolean>>({});
   const [aiError, setAiError] = useState<Record<number, string>>({});
-  const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
-  // Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
+  const [aiDone, setAiDone] = useState<Record<number, boolean>>({});  // Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
     supabase.from('audit_config').select('value').eq('key', 'naming_pattern').maybeSingle()
       .then(({ data, error }) => {
         if (data?.value) {
           setNamingPattern(data.value);
         } else if (error) {
-          // Fallback localStorage si la table n'existe pas encore
           const local = localStorage.getItem('naming_pattern');
           if (local) setNamingPattern(local);
         }
       });
+    // Charger les attendus personnalisés
+    const ids = ['2.1', '2.2', '2.3', '2.4'];
+    ids.forEach(id => {
+      const key = `expected_${id}`;
+      supabase.from('audit_config').select('value').eq('key', key).maybeSingle()
+        .then(({ data, error }) => {
+          const val = data?.value ?? (error ? localStorage.getItem(key) : null);
+          if (val) setCustomExpected(prev => ({ ...prev, [id]: val }));
+        });
+    });
   }, []);
 
   async function saveNamingPattern() {
@@ -487,9 +496,21 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
       setTimeout(() => setPatternSaved(false), 2500);
     }
   }
-
   const setCell = (itemId: string, maqId: number, val: CellStatus) =>
     setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
+
+  async function saveCustomExpected(itemId: string) {
+    const value = customExpected[itemId]?.trim();
+    if (!value) return;
+    const key = `expected_${itemId}`;
+    setCustomSaving(prev => ({ ...prev, [itemId]: true }));
+    setCustomSaved(prev => ({ ...prev, [itemId]: false }));
+    localStorage.setItem(key, value);
+    await supabase.from('audit_config').upsert({ key, value }, { onConflict: 'key' });
+    setCustomSaving(prev => ({ ...prev, [itemId]: false }));
+    setCustomSaved(prev => ({ ...prev, [itemId]: true }));
+    setTimeout(() => setCustomSaved(prev => ({ ...prev, [itemId]: false })), 2500);
+  }
 
   async function runAiAudit(audit: Audit) {
     if (!audit.details?.startsWith('box:')) return;
@@ -837,6 +858,62 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                       return (
                                         <td key={m.id} className="px-1.5 py-1.5 align-top">
                                           <button onClick={next} title="Cliquer pour renseigner manuellement"
+                                            className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}>
+                                            {label}
+                                          </button>
+                                          {comment && (
+                                            <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{comment}</p>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                    {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
+                                  </tr>
+                                );
+                              }                              // ── 2.1 / 2.2 / 2.3 / 2.4 : champ attendu éditable + bouton OK ──
+                              if (['2.1', '2.2', '2.3', '2.4'].includes(item.id)) {
+                                const val = customExpected[item.id] ?? '';
+                                const isSaving = customSaving[item.id];
+                                const isSaved = customSaved[item.id];
+                                return (
+                                  <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                                    <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-top whitespace-nowrap">{item.id}</td>
+                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>
+                                    <td className="px-3 py-3 align-top">
+                                      <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          value={val}
+                                          onChange={e => setCustomExpected(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                          placeholder="Renseigner l'attendu…"
+                                          className="flex-1 text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
+                                        />
+                                        <button
+                                          onClick={() => saveCustomExpected(item.id)}
+                                          disabled={isSaving || !val.trim()}
+                                          className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                            isSaved
+                                              ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                              : isSaving
+                                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
+                                              : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                                          }`}
+                                          title="Sauvegarder sur Supabase"
+                                        >
+                                          {isSaved ? '✓ Sauvegardé' : isSaving ? '…' : 'OK'}
+                                        </button>
+                                      </div>
+                                    </td>
+                                    {maquettes.map(m => {
+                                      const st = cells[`${item.id}-${m.id}`] ?? '';
+                                      const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+                                      const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
+                                      const { bg, label } = statusMap[st];
+                                      const comment = aiComments[`${item.id}-${m.id}`];
+                                      return (
+                                        <td key={m.id} className="px-1.5 py-1.5 align-top">
+                                          <button onClick={next} title="Cliquer pour changer le statut"
                                             className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}>
                                             {label}
                                           </button>
