@@ -935,8 +935,18 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                           {isSaved ? '✓ Sauvegardé' : isSaving ? '…' : 'OK'}
                                         </button>
                                       </div>
-                                    </td>
-                                    {maquettes.map(m => {
+                                    </td>                                    {maquettes.map(m => {
+                                      // Si pas d'attendu renseigné → Sans Objet
+                                      const hasExpected = !!(customExpected[item.id]?.trim());
+                                      if (!hasExpected) {
+                                        return (
+                                          <td key={m.id} className="px-1.5 py-1.5 align-top">
+                                            <div className="w-full h-7 rounded text-[10px] font-semibold flex items-center justify-center bg-slate-100 text-slate-400 italic" title="Aucune exigence renseignée">
+                                              S/O
+                                            </div>
+                                          </td>
+                                        );
+                                      }
                                       const st = cells[`${item.id}-${m.id}`] ?? '';
                                       const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
                                       const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
