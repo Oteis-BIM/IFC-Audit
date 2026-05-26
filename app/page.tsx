@@ -445,11 +445,12 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const [aiError, setAiError] = useState<Record<number, string>>({});
   const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
   const [aiProgress, setAiProgress] = useState<Record<number, number>>({});
-  const aiProgressRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
-  // Niveaux attendus pour la carte 5 : [{ name, elevation }]
+  const aiProgressRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});  // Niveaux attendus pour la carte 5 : [{ name, elevation }]
   const [expectedLevels, setExpectedLevels] = useState<{ name: string; elevation: string }[]>([
     { name: '', elevation: '' },
-  ]);// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
+  ]);
+  // Niveaux trouvés par l'IA pour chaque maquette : maqId -> storeys[]
+  const [ifcStoreys, setIfcStoreys] = useState<Record<number, { name: string; elevation: number | null }[]>>({});// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
     supabase.from('audit_config').select('value').eq('key', 'naming_pattern').maybeSingle()
       .then(({ data, error }) => {
@@ -553,15 +554,18 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           }
         }
         return next;
-      });
-      // Stocker les commentaires IA pour chaque critère
+      });      // Stocker les commentaires IA pour chaque critère
       setAiComments(prev => {
         const next = { ...prev };
         for (const [itemId, val] of Object.entries(results)) {
           if (val.comment) next[`${itemId}-${audit.id}`] = val.comment;
         }
         return next;
-      });      setAiDone(prev => ({ ...prev, [audit.id]: true }));
+      });
+      // Stocker les niveaux IFC extraits par le parser
+      if (data.facts?.storeys?.length) {
+        setIfcStoreys(prev => ({ ...prev, [audit.id]: data.facts.storeys }));
+      }setAiDone(prev => ({ ...prev, [audit.id]: true }));
       clearInterval(aiProgressRef.current[audit.id]);
       setAiProgress(prev => ({ ...prev, [audit.id]: 100 }));
     } catch (err: unknown) {
@@ -744,32 +748,36 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-violet-50 text-violet-400 rounded flex items-center justify-center font-bold text-[10px]">?</span> À vérifier manuellement</span>
           </div>          <div className="space-y-5">
-            {RAPPORT_CATEGORIES.map(cat => {
-              // ── Carte 5 : tableau niveaux spécial ──────────────────────────
+            {RAPPORT_CATEGORIES.map(cat => {              // ── Carte 5 : tableau niveaux spécial ──────────────────────────
               if (cat.category.startsWith('5 —')) {
                 return (
                   <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
-                        <div className="text-sm font-bold text-white">{cat.category}</div>
-                      </div>
+                    <div className="bg-blue-600 px-5 py-3">
+                      <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
+                      <div className="text-sm font-bold text-white">{cat.category}</div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
                             <th className="text-left px-3 py-2 font-bold text-slate-400 w-8">#</th>
-                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[160px]">Nom du niveau attendu</th>
-                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[120px]">Élévation attendue (mm)</th>
+                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[160px]">
+                              Nom attendu
+                            </th>
+                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[130px]">
+                              Élévation attendue (mm)
+                            </th>
                             {maquettes.map(m => {
                               const { discipline } = parseMaquetteDetails(m.details);
                               return (
-                                <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[110px]">
-                                  {discipline && <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide truncate max-w-[100px] mx-auto">{discipline}</div>}
-                                  <span className="truncate block max-w-[100px] mx-auto text-[10px] font-medium text-slate-500" title={m.project_name}>
-                                    {m.project_name.replace(/\.ifc$/i, '').slice(0, 12)}
+                                <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[220px]">
+                                  {discipline && <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide">{discipline}</div>}
+                                  <span className="text-[10px] font-medium text-slate-500" title={m.project_name}>
+                                    {m.project_name.replace(/\.ifc$/i, '').slice(0, 16)}
                                   </span>
+                                  <div className="flex text-[9px] text-slate-400 font-normal mt-0.5 justify-center gap-4">
+                                    <span>Nom IFC trouvé</span><span>Élév. IFC (mm)</span><span>Statut</span>
+                                  </div>
                                 </th>
                               );
                             })}
@@ -799,32 +807,53 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 />
                               </td>
                               {maquettes.map(m => {
-                                const stName = cells[`5-lvl${i}-name-${m.id}`] ?? '';
-                                const stElev = cells[`5-lvl${i}-elev-${m.id}`] ?? '';
-                                const cycleNext = (key: string, cur: CellStatus) => {
-                                  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
-                                  setCell(key, m.id, cycle[(cycle.indexOf(cur) + 1) % cycle.length]);
+                                const storeys = ifcStoreys[m.id] ?? [];
+                                // Chercher le niveau IFC correspondant par nom (insensible casse) ou par index
+                                const found = storeys.find(s =>
+                                  lvl.name && s.name.toLowerCase() === lvl.name.toLowerCase()
+                                ) ?? storeys[i] ?? null;
+
+                                const expElev = lvl.elevation ? parseFloat(lvl.elevation) : null;
+                                const ifcElev = found?.elevation ?? null;
+
+                                // Statut nom
+                                const nameOk = !lvl.name || (found && found.name.toLowerCase() === lvl.name.toLowerCase());
+                                // Statut élévation (en mm, tolérance 1mm)
+                                const elevOk = expElev === null || (ifcElev !== null && Math.abs(ifcElev - expElev) <= 1);
+
+                                const overall = !found
+                                  ? 'missing'
+                                  : nameOk && elevOk ? 'ok'
+                                  : nameOk || elevOk ? 'warning'
+                                  : 'error';
+
+                                const statusStyle: Record<string, string> = {
+                                  ok:      'bg-emerald-100 text-emerald-700',
+                                  warning: 'bg-orange-100 text-orange-600',
+                                  error:   'bg-red-100 text-red-600',
+                                  missing: 'bg-slate-100 text-slate-400',
                                 };
-                                const { bg: bgN, label: lblN } = statusMap[stName];
-                                const { bg: bgE, label: lblE } = statusMap[stElev];
+                                const statusLabel: Record<string, string> = {
+                                  ok: '✓', warning: '⚠', error: '✗', missing: '—',
+                                };
+
                                 return (
-                                  <td key={m.id} className="px-1.5 py-2 align-middle">
-                                    <div className="flex flex-col gap-1">
-                                      <button
-                                        onClick={() => cycleNext(`5-lvl${i}-name`, stName)}
-                                        title="Nom du niveau — cliquer pour changer"
-                                        className={`w-full h-6 rounded text-[10px] font-bold transition-colors ${bgN} hover:opacity-80`}
-                                      >
-                                        <span className="text-[8px] opacity-60 mr-0.5">Nom</span>{lblN}
-                                      </button>
-                                      <button
-                                        onClick={() => cycleNext(`5-lvl${i}-elev`, stElev)}
-                                        title="Élévation — cliquer pour changer"
-                                        className={`w-full h-6 rounded text-[10px] font-bold transition-colors ${bgE} hover:opacity-80`}
-                                      >
-                                        <span className="text-[8px] opacity-60 mr-0.5">Élév.</span>{lblE}
-                                      </button>
-                                    </div>
+                                  <td key={m.id} className="px-2 py-2 align-middle">
+                                    {storeys.length === 0 ? (
+                                      <span className="text-slate-300 italic text-[10px]">Lancer l&apos;analyse IA</span>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        <span className={`text-[10px] font-mono truncate max-w-[80px] px-1.5 py-0.5 rounded ${found ? 'text-slate-700 bg-slate-50 border border-slate-200' : 'text-slate-300 italic'}`} title={found?.name}>
+                                          {found?.name || '—'}
+                                        </span>
+                                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${ifcElev !== null ? 'text-slate-700 bg-slate-50 border border-slate-200' : 'text-slate-300'}`}>
+                                          {ifcElev !== null ? ifcElev.toLocaleString() : '—'}
+                                        </span>
+                                        <span className={`w-7 h-7 rounded flex items-center justify-center text-[11px] font-bold shrink-0 ${statusStyle[overall]}`}>
+                                          {statusLabel[overall]}
+                                        </span>
+                                      </div>
+                                    )}
                                   </td>
                                 );
                               })}
@@ -834,18 +863,51 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                         </tbody>
                         <tfoot>
                           <tr className="border-t border-slate-200 bg-slate-50">
-                            <td colSpan={3 + maquettes.length} className="px-3 py-2">
+                            <td colSpan={3 + maquettes.length} className="px-3 py-2 flex items-center gap-4">
                               <button
                                 onClick={() => setExpectedLevels(prev => [...prev, { name: '', elevation: '' }])}
-                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 transition-colors"
+                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors"
                               >
                                 + Ajouter un niveau
                               </button>
+                              {expectedLevels.length > 1 && (
+                                <button
+                                  onClick={() => setExpectedLevels(prev => prev.slice(0, -1))}
+                                  className="text-xs text-red-400 hover:text-red-600 font-semibold transition-colors"
+                                >
+                                  − Supprimer le dernier
+                                </button>
+                              )}
                             </td>
                           </tr>
                         </tfoot>
                       </table>
                     </div>
+                    {/* Niveaux IFC trouvés dans la maquette mais non attendus */}
+                    {maquettes.some(m => (ifcStoreys[m.id]?.length ?? 0) > 0) && (
+                      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60">
+                        <p className="text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-wide">Niveaux IFC extraits</p>
+                        <div className="flex flex-wrap gap-4">
+                          {maquettes.map(m => {
+                            const storeys = ifcStoreys[m.id];
+                            if (!storeys?.length) return null;
+                            const { discipline } = parseMaquetteDetails(m.details);
+                            return (
+                              <div key={m.id} className="text-[10px]">
+                                <p className="font-semibold text-blue-600 mb-1">{discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 14)}</p>
+                                <div className="flex flex-col gap-0.5">
+                                  {storeys.map((s, si) => (
+                                    <span key={si} className="font-mono text-slate-600 bg-white border border-slate-200 rounded px-2 py-0.5">
+                                      {s.name || '(sans nom)'} — {s.elevation !== null ? `${s.elevation.toLocaleString()} mm` : '—'}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               }
