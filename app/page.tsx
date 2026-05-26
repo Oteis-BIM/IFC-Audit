@@ -145,16 +145,17 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
   },
 ];
 
-type CellStatus = 'ok' | 'warning' | 'error' | 'na' | '';
+type CellStatus = 'ok' | 'warning' | 'error' | 'na' | 'unclear' | '';
 
 function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: CellStatus) => void }) {
-  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
   const next = () => onChange(cycle[(cycle.indexOf(status) + 1) % cycle.length]);
   const map: Record<CellStatus, { bg: string; label: string }> = {
     ok:      { bg: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200', label: '✓' },
     warning: { bg: 'bg-orange-100 text-orange-600 hover:bg-orange-200',   label: '⚠' },
     error:   { bg: 'bg-red-100 text-red-600 hover:bg-red-200',             label: '✗' },
     na:      { bg: 'bg-slate-100 text-slate-400 hover:bg-slate-200',       label: 'N/A' },
+    unclear: { bg: 'bg-violet-50 text-violet-400 hover:bg-violet-100',     label: '?' },
     '':      { bg: 'bg-white text-slate-300 hover:bg-slate-50',            label: '—' },
   };
   const { bg, label } = map[status];
@@ -211,8 +212,8 @@ function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }
           <div className="flex items-center gap-3 text-xs text-slate-500 bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 flex-wrap">
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-emerald-100 text-emerald-700 rounded flex items-center justify-center font-bold text-[10px]">✓</span> Conforme</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-orange-100 text-orange-600 rounded flex items-center justify-center font-bold text-[10px]">⚠</span> Écart</span>
-            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>
-            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
+            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
+            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-violet-50 text-violet-400 rounded flex items-center justify-center font-bold text-[10px]">?</span> À vérifier manuellement</span>
           </div>
           <button className="border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-slate-50 transition-colors flex items-center gap-2 shrink-0">
             <Download className="h-4 w-4" /> Exporter CSV
@@ -528,14 +529,13 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileId, fileName: audit.project_name, discipline, criteria }),
       });
-      const data = await res.json();      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-      // Injecter les résultats dans les cellules
+      const data = await res.json();      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);      // Injecter les résultats dans les cellules
       const results: Record<string, { status: string; comment: string }> = data.results ?? {};
       setCells(prev => {
         const next = { ...prev };
         for (const [itemId, val] of Object.entries(results)) {
           const st = val.status as CellStatus;
-          if (['ok', 'warning', 'error', 'na'].includes(st)) {
+          if (['ok', 'warning', 'error', 'na', 'unclear'].includes(st)) {
             next[`${itemId}-${audit.id}`] = st;
           }
         }
@@ -576,12 +576,12 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
     });
     return total === 0 ? null : Math.round((ok / total) * 100);
   };
-
   const statusMap: Record<CellStatus, { bg: string; label: string }> = {
     ok:      { bg: 'bg-emerald-100 text-emerald-700', label: '✓' },
     warning: { bg: 'bg-orange-100 text-orange-600',   label: '⚠' },
     error:   { bg: 'bg-red-100 text-red-600',          label: '✗' },
     na:      { bg: 'bg-slate-100 text-slate-400',      label: 'N/A' },
+    unclear: { bg: 'bg-violet-50 text-violet-400',     label: '?' },
     '':      { bg: 'bg-white text-slate-300',          label: '—' },
   };
 
@@ -713,8 +713,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           <div className="flex items-center gap-3 text-xs text-slate-500 bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 mb-6 w-fit flex-wrap">
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-emerald-100 text-emerald-700 rounded flex items-center justify-center font-bold text-[10px]">✓</span> Conforme</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-orange-100 text-orange-600 rounded flex items-center justify-center font-bold text-[10px]">⚠</span> Écart</span>
-            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>
-            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
+            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
+            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-violet-50 text-violet-400 rounded flex items-center justify-center font-bold text-[10px]">?</span> À vérifier manuellement</span>
           </div>          <div className="space-y-5">
             {RAPPORT_CATEGORIES.map(cat => (
                     <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -789,12 +789,12 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                       </div>
                                       <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p></td>
                                     {maquettes.map(m => {
-                                      const status = checkNaming(m.project_name, namingPattern);
-                                      const map: Record<CellStatus, { bg: string; label: string }> = {
+                                      const status = checkNaming(m.project_name, namingPattern);                                      const map: Record<CellStatus, { bg: string; label: string }> = {
                                         ok:      { bg: 'bg-emerald-100 text-emerald-700', label: '✓' },
                                         error:   { bg: 'bg-red-100 text-red-600',          label: '✗' },
                                         warning: { bg: 'bg-orange-100 text-orange-600',   label: '⚠' },
                                         na:      { bg: 'bg-slate-100 text-slate-400',      label: 'N/A' },
+                                        unclear: { bg: 'bg-violet-50 text-violet-400',     label: '?' },
                                         '':      { bg: 'bg-slate-50 text-slate-300',       label: '—' },
                                       };
                                       const { bg, label } = map[status];
@@ -851,7 +851,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                       <span className="text-[10px] text-slate-300 italic">— Vérification manuelle</span>
                                     </td>                                    {maquettes.map(m => {
                                       const st = cells[`${item.id}-${m.id}`] ?? '';
-                                      const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+                                      const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
                                       const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
                                       const { bg, label } = statusMap[st];
                                       const comment = aiComments[`${item.id}-${m.id}`];
@@ -907,7 +907,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     </td>
                                     {maquettes.map(m => {
                                       const st = cells[`${item.id}-${m.id}`] ?? '';
-                                      const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+                                      const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
                                       const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
                                       const { bg, label } = statusMap[st];
                                       const comment = aiComments[`${item.id}-${m.id}`];
@@ -934,7 +934,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                <td className="px-3 py-2 text-slate-400 italic align-top leading-snug">{item.expected}</td>
                                 {maquettes.map(m => {
                                   const st = cells[`${item.id}-${m.id}`] ?? '';
-                                  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na'];
+                                  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
                                   const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
                                   const { bg, label } = statusMap[st];
                                   const comment = aiComments[`${item.id}-${m.id}`];
