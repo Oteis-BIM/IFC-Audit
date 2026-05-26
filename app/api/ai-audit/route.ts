@@ -57,7 +57,7 @@ function stepStr(val: string): string {
 interface IfcFacts {
   project: { name: string; longName: string; description: string; phase: string } | null;
   site: { name: string; description: string } | null;
-  siteCoords: { x: number | null; y: number | null; z: number | null } | null;
+  siteCoords: { x: number | null; y: number | null; z: number | null; src: string } | null;
   mapConversion: { easting: number | null; northing: number | null; height: number | null } | null;
 }
 
@@ -65,6 +65,7 @@ function extractIfcFacts(raw: string): IfcFacts {
   const index = buildEntityIndex(raw);
   const facts: IfcFacts = { project: null, site: null, siteCoords: null, mapConversion: null };
 
+  // IFCPROJECT
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCPROJECT(')) {
       const args = parseArgs(body);
@@ -78,6 +79,7 @@ function extractIfcFacts(raw: string): IfcFacts {
     }
   }
 
+  // IFCSITE — pos 5 = ObjectPlacement
   let sitePlacementRef: string | null = null;
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCSITE(')) {
@@ -91,6 +93,7 @@ function extractIfcFacts(raw: string): IfcFacts {
     }
   }
 
+  // IFCMAPCONVERSION (IFC4)
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCMAPCONVERSION(')) {
       const args = parseArgs(body);
@@ -103,7 +106,8 @@ function extractIfcFacts(raw: string): IfcFacts {
     }
   }
 
-  function readCartesianPoint(axis2Ref: string): { x: number | null; y: number | null; z: number | null } | null {
+  // Utilitaire : IFCAXIS2PLACEMENT3D -> IFCCARTESIANPOINT -> {x,y,z}
+  function readCoordsFromAxis2(axis2Ref: string): { x: number | null; y: number | null; z: number | null } | null {
     if (!axis2Ref || !index.has(axis2Ref)) return null;
     const axis2Body = index.get(axis2Ref)!;
     if (!axis2Body.toUpperCase().startsWith('IFCAXIS2PLACEMENT3D(')) return null;
@@ -112,9 +116,11 @@ function extractIfcFacts(raw: string): IfcFacts {
     if (!ptRef || !index.has(ptRef)) return null;
     const ptBody = index.get(ptRef)!;
     if (!ptBody.toUpperCase().startsWith('IFCCARTESIANPOINT(')) return null;
-    const coordsMatch = ptBody.match(/\(\(([^)]+)\)\)/);
-    if (!coordsMatch) return null;
-    const parts = coordsMatch[1].split(',').map(s => parseFloat(s.trim()));
+    const m1 = ptBody.match(/\(\(([^)]+)\)\)/);
+    const m2 = ptBody.match(/\(([^)]+)\)/);
+    const coordStr = (m1 ?? m2)?.[1];
+    if (!coordStr) return null;
+    const parts = coordStr.split(',').map((s: string) => parseFloat(s.trim()));
     return {
       x: isNaN(parts[0]) ? null : parts[0],
       y: isNaN(parts[1]) ? null : parts[1],
@@ -122,9 +128,27 @@ function extractIfcFacts(raw: string): IfcFacts {
     };
   }
 
-  if (sitePlacementRef && index.has(sitePlacementRef)) {
+  // Strategie 1 : IFCGEOMETRICREPRESENTATIONCONTEXT -> WorldCoordinateSystem
+  // Revit IFC2x3 stocke les coords Lambert93 ici
+  for (const [, body] of index) {
+    if (body.toUpperCase().startsWith('IFCGEOMETRICREPRESENTATIONCONTEXT(')) {
+      const args = parseArgs(body);
+      const wcsRef = args[4];
+      if (wcsRef && wcsRef !== '$') {
+        const coords = readCoordsFromAxis2(wcsRef);
+        if (coords && (Math.abs(coords.x ?? 0) > 10000 || Math.abs(coords.y ?? 0) > 10000)) {
+          facts.siteCoords = { ...coords, src: 'IFCGEOMETRICREPRESENTATIONCONTEXT->WorldCoordinateSystem' };
+          break;
+        }
+      }
+    }
+  }
+
+  // Strategie 2 : remontee chaine IFCLOCALPLACEMENT depuis IFCSITE
+  // garde le placement avec les plus grandes coordonnees absolues
+  if (!facts.siteCoords && sitePlacementRef && index.has(sitePlacementRef)) {
     let currentRef: string | null = sitePlacementRef;
-    let rootAxis2Ref: string | null = null;
+    let bestCoords: { x: number | null; y: number | null; z: number | null } | null = null;
     const visited = new Set<string>();
     while (currentRef && index.has(currentRef) && !visited.has(currentRef)) {
       visited.add(currentRef);
@@ -133,13 +157,18 @@ function extractIfcFacts(raw: string): IfcFacts {
       const placArgs = parseArgs(placBody);
       const parentRef = placArgs[0];
       const axis2Ref  = placArgs[1];
-      rootAxis2Ref = axis2Ref ?? null;
+      if (axis2Ref) {
+        const coords = readCoordsFromAxis2(axis2Ref);
+        if (coords) {
+          const mag     = Math.abs(coords.x ?? 0) + Math.abs(coords.y ?? 0);
+          const bestMag = Math.abs(bestCoords?.x ?? 0) + Math.abs(bestCoords?.y ?? 0);
+          if (mag > bestMag) bestCoords = coords;
+        }
+      }
       if (!parentRef || parentRef === '$') break;
       currentRef = parentRef;
     }
-    if (rootAxis2Ref) {
-      facts.siteCoords = readCartesianPoint(rootAxis2Ref);
-    }
+    if (bestCoords) facts.siteCoords = { ...bestCoords, src: 'IFCLOCALPLACEMENT(chaine)->IFCAXIS2PLACEMENT3D->IFCCARTESIANPOINT' };
   }
 
   return facts;
@@ -213,7 +242,7 @@ export async function POST(req: NextRequest) {
           x: facts.siteCoords.x,
           y: facts.siteCoords.y,
           z: facts.siteCoords.z,
-          src: 'IFCLOCALPLACEMENT(racine)=>IFCAXIS2PLACEMENT3D=>IFCCARTESIANPOINT',
+          src: facts.siteCoords.src,
         }
       : null;
 
@@ -254,7 +283,7 @@ Statuts possibles :
 - "warning" : partiellement conforme ou present mais incomplet
 - "error"   : non conforme, absent ou vide
 - "na"      : non applicable pour cette discipline
-- "unclear" : impossible a verifier (verification visuelle, clash, subjectif)
+- "unclear" : impossible a verifier
 
 Regles de comparaison :
 - Champs texte (Name, LongName, Description, Phase) : compare exactement la valeur extraite a la valeur attendue. Vide ou absent -> "error".
@@ -267,7 +296,7 @@ Format de reponse JSON strict :
 {
   "2.1": { "status": "ok",    "comment": "Name : '100024' conforme a l attendu '100024'." },
   "3.3": { "status": "ok",    "comment": "Global Y : 1371437363 mm conforme a l attendu 1371437363 mm." },
-  "3.5": { "status": "error", "comment": "Global Z : 0 mm attendu : 47300 mm." }
+  "3.5": { "status": "error", "comment": "Global Z : 0 mm - attendu : 47300 mm." }
 }`;
 
     const userPrompt = `Fichier : ${fileName} | Discipline : ${discipline || 'non precisee'}
