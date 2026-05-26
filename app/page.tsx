@@ -65,14 +65,14 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
       { id: "2.4", label: "Phase (Phase)", expected: "Phase du projet renseignée" },
     ],
   },
-  {
-    section: "FICHIER IFC",
+  {    section: "FICHIER IFC",
     category: "3 — ATTRIBUTS SITE (IfcSite)",
     items: [
       { id: "3.1", label: "Nom (Name)", expected: "Nom du site renseigné" },
-      { id: "3.2", label: "Désignation (Description)", expected: "Description du site renseignée" },
-      { id: "3.3", label: "Coordonnées XYZ (Latitude/Longitude)", expected: "Coordonnées géographiques renseignées (RGF93 / Lambert 93)" },
-      { id: "3.4", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
+      { id: "3.2", label: "Description (Description)", expected: "Description du site renseignée" },
+      { id: "3.3", label: "Coordonnées N/S (Global Y)", expected: "Coordonnée Nord/Sud renseignée (RGF93 / Lambert 93)" },
+      { id: "3.4", label: "Coordonnées E/O (Global X)", expected: "Coordonnée Est/Ouest renseignée (RGF93 / Lambert 93)" },
+      { id: "3.5", label: "Elevation (Élévation Z)", expected: "Élévation NGF renseignée" },
     ],
   },
   {
@@ -465,7 +465,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           if (local) setNamingPattern(local);
         }
       });    // Charger les attendus personnalisés
-    const ids = ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4'];
+    const ids = ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5'];
     ids.forEach(id => {
       const key = `expected_${id}`;
       supabase.from('audit_config').select('value').eq('key', key).maybeSingle()
@@ -901,7 +901,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   </tr>
                                 );
                               }                              // ── 2.1-2.4 / 3.1-3.4 : champ attendu éditable + bouton OK ──
-                              if (['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4'].includes(item.id)) {
+                              if (['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5'].includes(item.id)) {
                                 const val = customExpected[item.id] ?? '';
                                 const isSaving = customSaving[item.id];
                                 const isSaved = customSaved[item.id];
