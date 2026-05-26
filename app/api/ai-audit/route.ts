@@ -38,13 +38,18 @@ function extractIfcContent(raw: string): string {
     'IFCUNITASSIGNMENT', 'IFCPOSTALADDRESS', 'IFCRELAGGREGATES',
     'FILE_DESCRIPTION', 'FILE_NAME', 'FILE_SCHEMA',
   ];
-
-  // Priorité : s'assurer que IFCPROJECT est toujours inclus en entier
-  // même s'il dépasse la limite de 300 lignes
-  const ifcProjectLines: string[] = [];
+  // Priorité : s'assurer que IFCPROJECT et IFCSITE sont toujours inclus en entier
+  const priorityLines: string[] = [];
   for (const line of lines) {
-    if (line.toUpperCase().includes('IFCPROJECT(')) {
-      ifcProjectLines.push(line);
+    const upper = line.toUpperCase();
+    if (
+      upper.includes('IFCPROJECT(') ||
+      upper.includes('IFCSITE(') ||
+      upper.includes('IFCLOCALPLACEMENT(') ||
+      upper.includes('IFCAXIS2PLACEMENT3D(') ||
+      upper.includes('IFCCARTESIANPOINT(')
+    ) {
+      priorityLines.push(line);
     }
   }
 
@@ -52,9 +57,8 @@ function extractIfcContent(raw: string): string {
     const upper = lines[i].toUpperCase();
     if (keywords.some(k => upper.includes(k))) kept.push(lines[i]);
   }
-
-  // Ajouter les lignes IFCPROJECT si pas déjà présentes
-  for (const l of ifcProjectLines) {
+  // Ajouter les lignes prioritaires si pas déjà présentes
+  for (const l of priorityLines) {
     if (!kept.includes(l)) kept.push(l);
   }
 
@@ -127,24 +131,41 @@ IMPORTANT :
 ## Analyse de l'entité IFCPROJECT (critères 2.1, 2.2, 2.3, 2.4)
 
 L'entité IFCPROJECT dans un fichier IFC STEP a la forme :
-  #N= IFCPROJECT('GlobalId','OwnerHistory','Name','Description','ObjectType','LongName','Phase',(...),(#...));
+  #N= IFCPROJECT('GlobalId',OwnerHistory,'Name','Description','ObjectType','LongName','Phase',(...),(#...));
 
-Les positions des champs sont (index 0-based après la parenthèse ouvrante) :
-  0 = GlobalId (GUID)
-  1 = OwnerHistory
-  2 = Name  → critère 2.1 "Code (Name)"
+Les positions des champs (0-based après la parenthèse ouvrante) :
+  2 = Name        → critère 2.1 "Code (Name)"
   3 = Description → critère 2.3
-  4 = ObjectType
-  5 = LongName → critère 2.2
-  6 = Phase → critère 2.4
+  5 = LongName    → critère 2.2
+  6 = Phase       → critère 2.4
 
 Pour les critères 2.1, 2.2, 2.3, 2.4 :
 - Extrais la valeur réelle du champ correspondant dans la ligne IFCPROJECT (entre apostrophes)
-- Compare-la à la valeur "Attendu" fournie (qui est la valeur exacte saisie par l'utilisateur)
-- Si la valeur réelle correspond (ou est cohérente avec) la valeur attendue → "ok"
-- Si la valeur est présente mais ne correspond pas à l'attendu → "error", précise les deux valeurs dans le commentaire
-- Si le champ est vide (''), $, ou absent → "error", précise que le champ est vide
-- Toujours indiquer dans le commentaire : valeur trouvée dans le fichier et valeur attendue
+- Compare-la à la valeur "Attendu" fournie (valeur exacte saisie par l'utilisateur)
+- Valeur conforme → "ok" ; présente mais différente → "error" ; vide ('') ou $ → "error"
+- Toujours indiquer dans le commentaire : valeur trouvée et valeur attendue
+
+## Analyse de l'entité IFCSITE (critères 3.1, 3.2, 3.3, 3.4, 3.5)
+
+L'entité IFCSITE dans un fichier IFC STEP a la forme :
+  #N= IFCSITE('GlobalId',OwnerHistory,'Name','Description','ObjectType','LongName',#Placement,#Representation,'SiteAddress',CompositionType,RefLatitude,RefLongitude,RefElevation,'LandTitleNumber',PostalAddress);
+
+Les positions des champs :
+  2 = Name        → critère 3.1 "Nom (Name)"
+  3 = Description → critère 3.2 "Description"
+  7 = ObjectPlacement (référence #N vers IFCLOCALPLACEMENT)
+
+Pour les coordonnées Global X, Y, Z (critères 3.3, 3.4, 3.5) :
+- Cherche la référence de placement de l'IFCSITE (champ 7, ex: #42)
+- Suis la chaîne : IFCLOCALPLACEMENT → IFCAXIS2PLACEMENT3D → IFCCARTESIANPOINT
+- Le IFCCARTESIANPOINT contient les coordonnées sous la forme : IFCCARTESIANPOINT((X,Y,Z))
+  - X = Global X (Est/Ouest)  → critère 3.4
+  - Y = Global Y (Nord/Sud)   → critère 3.3
+  - Z = Global Z (Élévation)  → critère 3.5
+- Si la valeur "Attendu" est un nombre, compare-la numériquement à la valeur trouvée
+- Si la valeur "Attendu" est une description textuelle (ex: "Élévation NGF renseignée"), vérifie simplement que la valeur est non nulle et non zéro
+- Si le placement est absent ou les coordonnées sont toutes à 0. → "warning" (peut être volontaire)
+- Toujours indiquer dans le commentaire : la valeur trouvée dans le fichier et la valeur attendue
 
 Tu retournes UNIQUEMENT un objet JSON valide, sans aucun texte autour, avec cette structure exacte :
 {
@@ -163,8 +184,10 @@ Discipline : ${discipline || 'non précisée'}
 Critères à évaluer (ID | Libellé | Attendu) :
 ${criteriaText}
 
-Note pour les critères 2.1/2.2/2.3/2.4 : la valeur "Attendu" est la valeur exacte saisie par l'utilisateur.
-Cherche la ligne IFCPROJECT dans l'extrait ci-dessous, extrais les champs Name (pos 2), LongName (pos 5), Description (pos 3), Phase (pos 6) et compare-les.
+Instructions de lecture du fichier IFC :
+- Critères 2.1/2.2/2.3/2.4 : cherche la ligne IFCPROJECT, extrais Name (pos 2), LongName (pos 5), Description (pos 3), Phase (pos 6) et compare aux valeurs attendues.
+- Critères 3.1/3.2 : cherche la ligne IFCSITE, extrais Name (pos 2) et Description (pos 3) et compare aux valeurs attendues.
+- Critères 3.3/3.4/3.5 : cherche la ligne IFCSITE, suis la référence de placement (#N au pos 7) → IFCLOCALPLACEMENT → IFCAXIS2PLACEMENT3D → IFCCARTESIANPOINT((X,Y,Z)). Y=Nord/Sud (3.3), X=Est/Ouest (3.4), Z=Élévation (3.5).
 
 Extrait du contenu IFC :
 \`\`\`
