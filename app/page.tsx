@@ -80,13 +80,10 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
     items: [      { id: "4.1", label: "Nom (Name)", expected: "" },
       { id: "4.2", label: "Adresse", expected: "" },
     ],
-  },
-  {
+  },  {
     section: "FICHIER IFC",
     category: "5 — ATTRIBUTS NIVEAUX (IfcBuildingStorey)",
-    items: [      { id: "5.1", label: "Nom (Name)", expected: "Nommage conforme à la convention (RDC, R+1…)" },
-      { id: "5.2", label: "Élévation (Élévation)", expected: "Élévation NGF renseignée pour chaque niveau" },
-    ],
+    items: [],
   },
   {
     section: "FICHIER IFC",
@@ -448,7 +445,11 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const [aiError, setAiError] = useState<Record<number, string>>({});
   const [aiDone, setAiDone] = useState<Record<number, boolean>>({});
   const [aiProgress, setAiProgress] = useState<Record<number, number>>({});
-  const aiProgressRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
+  const aiProgressRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+  // Niveaux attendus pour la carte 5 : [{ name, elevation }]
+  const [expectedLevels, setExpectedLevels] = useState<{ name: string; elevation: string }[]>([
+    { name: '', elevation: '' },
+  ]);// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
     supabase.from('audit_config').select('value').eq('key', 'naming_pattern').maybeSingle()
       .then(({ data, error }) => {
@@ -743,7 +744,113 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-red-100 text-red-600 rounded flex items-center justify-center font-bold text-[10px]">✗</span> Non conforme</span>            <span className="flex items-center gap-1"><span className="w-5 h-5 bg-slate-100 text-slate-400 rounded flex items-center justify-center font-bold text-[9px]">N/A</span> Non applicable</span>
             <span className="flex items-center gap-1"><span className="w-5 h-5 bg-violet-50 text-violet-400 rounded flex items-center justify-center font-bold text-[10px]">?</span> À vérifier manuellement</span>
           </div>          <div className="space-y-5">
-            {RAPPORT_CATEGORIES.map(cat => (
+            {RAPPORT_CATEGORIES.map(cat => {
+              // ── Carte 5 : tableau niveaux spécial ──────────────────────────
+              if (cat.category.startsWith('5 —')) {
+                return (
+                  <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
+                        <div className="text-sm font-bold text-white">{cat.category}</div>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="text-left px-3 py-2 font-bold text-slate-400 w-8">#</th>
+                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[160px]">Nom du niveau attendu</th>
+                            <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[120px]">Élévation attendue (mm)</th>
+                            {maquettes.map(m => {
+                              const { discipline } = parseMaquetteDetails(m.details);
+                              return (
+                                <th key={m.id} className="text-center px-2 py-2 font-bold text-slate-600 min-w-[110px]">
+                                  {discipline && <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wide truncate max-w-[100px] mx-auto">{discipline}</div>}
+                                  <span className="truncate block max-w-[100px] mx-auto text-[10px] font-medium text-slate-500" title={m.project_name}>
+                                    {m.project_name.replace(/\.ifc$/i, '').slice(0, 12)}
+                                  </span>
+                                </th>
+                              );
+                            })}
+                            {maquettes.length === 0 && <th className="text-center px-3 py-2 text-slate-300 italic font-normal">← Chargez des maquettes</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {expectedLevels.map((lvl, i) => (
+                            <tr key={i} className={`border-t border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                              <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle">{i + 1}</td>
+                              <td className="px-3 py-2 align-middle">
+                                <input
+                                  type="text"
+                                  value={lvl.name}
+                                  onChange={e => setExpectedLevels(prev => prev.map((l, j) => j === i ? { ...l, name: e.target.value } : l))}
+                                  placeholder="ex: RDC, R+1…"
+                                  className="w-full text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
+                                />
+                              </td>
+                              <td className="px-3 py-2 align-middle">
+                                <input
+                                  type="text"
+                                  value={lvl.elevation}
+                                  onChange={e => setExpectedLevels(prev => prev.map((l, j) => j === i ? { ...l, elevation: e.target.value } : l))}
+                                  placeholder="ex: 0, 3200…"
+                                  className="w-full text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
+                                />
+                              </td>
+                              {maquettes.map(m => {
+                                const stName = cells[`5-lvl${i}-name-${m.id}`] ?? '';
+                                const stElev = cells[`5-lvl${i}-elev-${m.id}`] ?? '';
+                                const cycleNext = (key: string, cur: CellStatus) => {
+                                  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
+                                  setCell(key, m.id, cycle[(cycle.indexOf(cur) + 1) % cycle.length]);
+                                };
+                                const { bg: bgN, label: lblN } = statusMap[stName];
+                                const { bg: bgE, label: lblE } = statusMap[stElev];
+                                return (
+                                  <td key={m.id} className="px-1.5 py-2 align-middle">
+                                    <div className="flex flex-col gap-1">
+                                      <button
+                                        onClick={() => cycleNext(`5-lvl${i}-name`, stName)}
+                                        title="Nom du niveau — cliquer pour changer"
+                                        className={`w-full h-6 rounded text-[10px] font-bold transition-colors ${bgN} hover:opacity-80`}
+                                      >
+                                        <span className="text-[8px] opacity-60 mr-0.5">Nom</span>{lblN}
+                                      </button>
+                                      <button
+                                        onClick={() => cycleNext(`5-lvl${i}-elev`, stElev)}
+                                        title="Élévation — cliquer pour changer"
+                                        className={`w-full h-6 rounded text-[10px] font-bold transition-colors ${bgE} hover:opacity-80`}
+                                      >
+                                        <span className="text-[8px] opacity-60 mr-0.5">Élév.</span>{lblE}
+                                      </button>
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                              {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t border-slate-200 bg-slate-50">
+                            <td colSpan={3 + maquettes.length} className="px-3 py-2">
+                              <button
+                                onClick={() => setExpectedLevels(prev => [...prev, { name: '', elevation: '' }])}
+                                className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 transition-colors"
+                              >
+                                + Ajouter un niveau
+                              </button>
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
                     <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                       <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
                         <div>                          <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
@@ -989,12 +1096,12 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 )}
                               </tr>
                               );
-                            })}
-                          </tbody>
+                            })}                          </tbody>
                         </table>
                       </div>
                     </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
