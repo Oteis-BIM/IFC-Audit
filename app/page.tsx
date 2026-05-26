@@ -849,11 +849,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
                                     <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                    <td className="px-3 py-2 align-middle leading-snug">
                                       <span className="text-slate-400 italic">{item.expected}</span>
-                                      <p className="text-[9px] text-orange-400 mt-0.5">⚠ Vérification manuelle requise</p>
-                                    </td>                                    {/* Colonne Analyse IA — B1.3 */}
-                                    <td className="px-3 py-2 align-middle">
-                                      <span className="text-[10px] text-slate-300 italic">— Vérification manuelle</span>
-                                    </td>                                    {maquettes.map(m => {
+                                      <p className="text-[9px] text-orange-400 mt-0.5">⚠ Vérification manuelle requise</p>                                    </td>
+                                    {maquettes.map(m => {
                                       const st = cells[`${item.id}-${m.id}`] ?? '';
                                       const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
                                       const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
