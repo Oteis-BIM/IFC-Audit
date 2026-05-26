@@ -464,9 +464,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
           const local = localStorage.getItem('naming_pattern');
           if (local) setNamingPattern(local);
         }
-      });
-    // Charger les attendus personnalisés
-    const ids = ['2.1', '2.2', '2.3', '2.4'];
+      });    // Charger les attendus personnalisés
+    const ids = ['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4'];
     ids.forEach(id => {
       const key = `expected_${id}`;
       supabase.from('audit_config').select('value').eq('key', key).maybeSingle()
@@ -901,8 +900,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
                                   </tr>
                                 );
-                              }                              // ── 2.1 / 2.2 / 2.3 / 2.4 : champ attendu éditable + bouton OK ──
-                              if (['2.1', '2.2', '2.3', '2.4'].includes(item.id)) {
+                              }                              // ── 2.1-2.4 / 3.1-3.4 : champ attendu éditable + bouton OK ──
+                              if (['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4'].includes(item.id)) {
                                 const val = customExpected[item.id] ?? '';
                                 const isSaving = customSaving[item.id];
                                 const isSaved = customSaved[item.id];
