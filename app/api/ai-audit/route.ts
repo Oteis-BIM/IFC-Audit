@@ -82,8 +82,9 @@ function extractIfcFacts(raw: string): IfcFacts {
     }
   }
 
-  // IFCSITE — pos 5 = ObjectPlacement
+  // IFCSITE — pos 5 = ObjectPlacement, pos 12 = RefElevation (NGF en mètres, IFC2x3/IFC4)
   let sitePlacementRef: string | null = null;
+  let siteRefElevationMm: number | null = null;
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCSITE(')) {
       const args = parseArgs(body);
@@ -92,6 +93,9 @@ function extractIfcFacts(raw: string): IfcFacts {
         description: stepStr(args[3] ?? ''),
       };
       sitePlacementRef = args[5] ?? null;
+      // args[12] = RefElevation (NGF du projet en mètres)
+      const refElev = parseFloat(args[12] ?? '$');
+      if (!isNaN(refElev)) siteRefElevationMm = Math.round(refElev * 1000);
       break;
     }
   }
@@ -221,13 +225,14 @@ function extractIfcFacts(raw: string): IfcFacts {
 
   // IFCBUILDINGSTOREY — niveaux NGF (critère 5.x)
   // args[2] = Name, args[9] = Elevation RELATIVE au projet (en mètres)
-  // Pour obtenir l'altitude NGF : élévation relative + offset Z global du projet
-  // L'offset Z est déjà calculé ci-dessus dans facts.siteCoords.z (en mm)
-  // ou facts.mapConversion.height (en mètres, à convertir)
+  // NGF = élévation relative (mm) + offset NGF du projet (mm)
+  // Priorité : RefElevation de IFCSITE > IFCMAPCONVERSION.height > 0
   const zOffsetMm: number =
-    facts.mapConversion?.height != null
+    siteRefElevationMm !== null
+      ? siteRefElevationMm
+      : facts.mapConversion?.height != null
       ? Math.round(facts.mapConversion.height * 1000)
-      : (facts.siteCoords?.z ?? 0);
+      : 0;
 
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCBUILDINGSTOREY(')) {
@@ -235,7 +240,7 @@ function extractIfcFacts(raw: string): IfcFacts {
       const name = stepStr(args[2] ?? '');
       const elevRaw = args[9] ?? '$';
       const elevRelM = elevRaw === '$' ? null : parseFloat(elevRaw);
-      // Elevation relative en mm + offset Z global = altitude NGF en mm
+      // Élévation relative (mm) + offset NGF = altitude NGF (mm)
       const elevNgfMm = elevRelM === null || isNaN(elevRelM)
         ? null
         : Math.round(elevRelM * 1000) + zOffsetMm;

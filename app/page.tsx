@@ -860,9 +860,8 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                             )}
                           </tr>
                         </thead>
-                        <tbody>
-                          {expectedLevels.map((lvl, i) => {
-                            // Auto-fill elevation from first maquette that has this level
+                        <tbody>                          {expectedLevels.map((lvl, i) => {
+                            // autoElev : altitude NGF en mm, issue du parser IFC
                             const autoElev: number | null = (() => {
                               if (!lvl.name) return null;
                               for (const m of maquettes) {
@@ -873,11 +872,10 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                               }
                               return null;
                             })();
-                            const displayElev = lvl.elevation
-                              ? lvl.elevation
-                              : autoElev !== null
-                              ? (autoElev / 1000).toFixed(3)
-                              : '';
+                            // displayElev : valeur affichée en mm (saisie manuelle ou auto)
+                            const displayElevMm: number | null = lvl.elevation
+                              ? parseFloat(lvl.elevation)
+                              : autoElev;
 
                             return (
                               <tr key={i} className={`border-t border-slate-100 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
@@ -911,13 +909,11 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                       className="w-full text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
                                     />
                                   )}
-                                </td>
-
-                                {/* ALT. NIVEAU */}
+                                </td>                                {/* ALT. NIVEAU — saisie et affichage en mm NGF */}
                                 <td className="px-3 py-2 align-middle">
                                   {hasAnyStoreys && !lvl.elevation && autoElev !== null ? (
                                     <span className="block text-right text-xs font-mono text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 select-none">
-                                      {(autoElev / 1000).toFixed(3)}
+                                      {autoElev}
                                     </span>
                                   ) : (
                                     <input
@@ -926,23 +922,21 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                       onChange={e => setExpectedLevels(prev => prev.map((l, j) =>
                                         j === i ? { ...l, elevation: e.target.value } : l
                                       ))}
-                                      placeholder={hasAnyStoreys ? (autoElev !== null ? (autoElev / 1000).toFixed(3) : '—') : 'ex: 58.450'}
+                                      placeholder={hasAnyStoreys ? (autoElev !== null ? String(autoElev) : '—') : 'ex: 47300'}
                                       className="w-full text-right text-xs border border-blue-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
                                     />
                                   )}
-                                </td>
-
-                                {/* Statut par maquette */}
+                                </td>                                {/* Statut par maquette */}
                                 {maquettes.map(m => {
                                   const storeys = ifcStoreys[m.id] ?? [];
                                   const found = storeys.find(s =>
                                     lvl.name && s.name.toLowerCase() === lvl.name.toLowerCase()
-                                  ) ?? (!lvl.name ? null : null);
+                                  ) ?? null;
 
-                                  const expElevNum = displayElev ? parseFloat(displayElev) * 1000 : null;
+                                  // Comparaison en mm — tolérance ±50 mm
                                   const ifcElev = found?.elevation ?? null;
                                   const nameOk = !!lvl.name && !!found;
-                                  const elevOk = expElevNum === null || (ifcElev !== null && Math.abs(ifcElev - expElevNum) <= 50);                                  // Use aiLoading/aiDone per maquette to distinguish pending vs missing:
+                                  const elevOk = displayElevMm === null || (ifcElev !== null && Math.abs(ifcElev - displayElevMm) <= 50);// Use aiLoading/aiDone per maquette to distinguish pending vs missing:
                                   // - No storeys + aiLoading  => pending (IA running)
                                   // - No storeys + aiDone     => missing (IA finished but no levels) or na if no expected name
                                   // - No storeys otherwise    => pending (IA not started yet)
@@ -975,10 +969,9 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   };
                                   const statusLabel: Record<StatusKey, string> = {
                                     ok: '✓', warning: '⚠', error: '✗', missing: '✗', pending: '…', na: '—',
-                                  };
-                                  const statusTitle: Record<StatusKey, string> = {
-                                    ok: 'Nom et altimétrie conformes',
-                                    warning: `Nom trouvé mais altimétrie non conforme${ifcElev !== null ? ` (IFC: ${(ifcElev/1000).toFixed(3)})` : ''}`,
+                                  };                                  const statusTitle: Record<StatusKey, string> = {
+                                    ok: 'Nom et altimétrie NGF conformes',
+                                    warning: `Nom trouvé mais altimétrie non conforme${ifcElev !== null ? ` (IFC: ${ifcElev} mm)` : ''}`,
                                     error: 'Non conforme',
                                     missing: 'Niveau absent dans ce fichier IFC',
                                     pending: 'Lancer l\'analyse IA pour extraire les niveaux',
@@ -994,7 +987,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         {statusLabel[overall as StatusKey]}
                                       </span>
                                       {found && overall !== 'ok' && ifcElev !== null && (
-                                        <div className="text-[9px] text-slate-400 font-mono mt-0.5">{(ifcElev/1000).toFixed(3)}</div>
+                                        <div className="text-[9px] text-slate-400 font-mono mt-0.5">{ifcElev}</div>
                                       )}
                                     </td>
                                   );
@@ -1035,7 +1028,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                             {discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 14)}
                                           </span>
                                           <span className="text-orange-500 ml-1">
-                                            {extras.map(s => `${s.name}${s.elevation !== null ? ` (${(s.elevation / 1000).toFixed(3)} m)` : ''}`).join(' · ')}
+                                            {extras.map(s => `${s.name}${s.elevation !== null ? ` (${s.elevation} mm)` : ''}`).join(' · ')}
                                           </span>
                                         </div>
                                       );
@@ -1065,7 +1058,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 )}
                                 {hasAnyStoreys && (
                                   <span className="ml-auto text-[10px] text-slate-400">
-                                    Alt. en mètres (NGF) · tolérance ±50 mm
+                                    Alt. en mm NGF · tolérance ±50 mm
                                   </span>
                                 )}
                               </div>
@@ -1096,7 +1089,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     <div key={si} className="flex items-center gap-2 font-mono text-slate-600 bg-white border border-slate-200 rounded px-2 py-1">
                                       <span className="font-semibold text-slate-700 min-w-[60px]">{s.name || '(sans nom)'}</span>
                                       <span className="text-slate-400">·</span>
-                                      <span className="text-blue-700">{s.elevation !== null ? `${(s.elevation / 1000).toFixed(3)} m` : '—'}</span>
+                                      <span className="text-blue-700">{s.elevation !== null ? `${s.elevation} mm` : '—'}</span>
                                     </div>
                                   ))}
                                 </div>
