@@ -435,8 +435,11 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   onView: (details: string | null, name: string) => void;
   onDelete: (id: number) => void;
   chapitresOnly?: boolean;
-}){  const maquettes = audits.slice(0, 6);  const [cells, setCells] = useState<Record<string, CellStatus>>({});
-  const [aiComments, setAiComments] = useState<Record<string, string>>({});  const [namingPattern, setNamingPattern] = useState('');
+}){  const maquettes = audits.slice(0, 6);
+  const [cells, setCells] = useState<Record<string, CellStatus>>({});
+  const setCell = (itemId: string, maqId: number, val: CellStatus) =>
+    setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
+  const [aiComments, setAiComments] = useState<Record<string, string>>({});const [namingPattern, setNamingPattern] = useState('');
   const [patternSaving, setPatternSaving] = useState(false);
   const [patternSaved, setPatternSaved] = useState(false);
   const [customExpected, setCustomExpected] = useState<Record<string, string>>({});
@@ -448,9 +451,11 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const aiProgressRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});  // Niveaux attendus pour la carte 5 : [{ name, elevation }]
   const [expectedLevels, setExpectedLevels] = useState<{ name: string; elevation: string }[]>([
     { name: '', elevation: '' },
-  ]);
-  const [levelsSaving, setLevelsSaving] = useState(false);
+  ]);  const [levelsSaving, setLevelsSaving] = useState(false);
   const [levelsSaved, setLevelsSaved] = useState(false);
+  // Sauvegarde par carte (clé = numéro de carte ex: "1", "2", "3", "4")
+  const [cardSaving, setCardSaving] = useState<Record<string, boolean>>({});
+  const [cardSaved, setCardSaved] = useState<Record<string, boolean>>({});
   // Niveaux trouvés par l'IA pour chaque maquette : maqId -> storeys[]
   const [ifcStoreys, setIfcStoreys] = useState<Record<number, { name: string; elevation: number | null }[]>>({});// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
@@ -506,10 +511,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
       setPatternSaved(true);
       setTimeout(() => setPatternSaved(false), 2500);
     }
-  }  const setCell = (itemId: string, maqId: number, val: CellStatus) =>
-    setCells(prev => ({ ...prev, [`${itemId}-${maqId}`]: val }));
-
-  async function saveExpectedLevels() {
+  }  async function saveExpectedLevels() {
     setLevelsSaving(true);
     setLevelsSaved(false);
     const value = JSON.stringify(expectedLevels);
@@ -523,7 +525,6 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
     setLevelsSaved(true);
     setTimeout(() => setLevelsSaved(false), 2500);
   }
-
   async function saveCustomExpected(itemId: string) {
     const value = customExpected[itemId]?.trim();
     if (!value) return;
@@ -535,6 +536,30 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
     setCustomSaving(prev => ({ ...prev, [itemId]: false }));
     setCustomSaved(prev => ({ ...prev, [itemId]: true }));
     setTimeout(() => setCustomSaved(prev => ({ ...prev, [itemId]: false })), 2500);
+  }
+
+  // Sauvegarde tous les attendus d'une carte en une seule action
+  async function saveCardExpected(cardNum: string, itemIds: string[]) {
+    setCardSaving(prev => ({ ...prev, [cardNum]: true }));
+    setCardSaved(prev => ({ ...prev, [cardNum]: false }));
+    // Cas spécial carte 1 : pattern de nommage
+    if (cardNum === '1' && namingPattern.trim()) {
+      localStorage.setItem('naming_pattern', namingPattern.trim());
+      await supabase.from('audit_config').upsert(
+        { key: 'naming_pattern', value: namingPattern.trim() },
+        { onConflict: 'key' }
+      );
+    }
+    await Promise.all(itemIds.map(async id => {
+      const value = customExpected[id]?.trim();
+      if (!value) return;
+      const key = `expected_${id}`;
+      localStorage.setItem(key, value);
+      await supabase.from('audit_config').upsert({ key, value }, { onConflict: 'key' });
+    }));
+    setCardSaving(prev => ({ ...prev, [cardNum]: false }));
+    setCardSaved(prev => ({ ...prev, [cardNum]: true }));
+    setTimeout(() => setCardSaved(prev => ({ ...prev, [cardNum]: false })), 2500);
   }
 
   async function runAiAudit(audit: Audit) {
@@ -1066,9 +1091,43 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                       </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-200">                              <th className="text-left px-3 py-2 font-bold text-slate-400 w-12">N°</th>
-                              <th className="text-left px-3 py-2 font-bold text-slate-600 min-w-[200px]">Item de contrôle</th>                              <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[200px]">Attendu</th>
+                          <thead>                            <tr className="bg-slate-50 border-b border-slate-200">
+                              <th className="text-left px-3 py-2 font-bold text-slate-400 w-12">N°</th>
+                              <th className="text-left px-3 py-2 font-bold text-slate-600 min-w-[200px]">Item de contrôle</th>
+                              <th className="text-left px-3 py-2 font-bold text-blue-600 min-w-[200px]">
+                                {(() => {
+                                  const catNum = cat.category.match(/^(\d+)/)?.[1] ?? '';
+                                  const editableIds: Record<string, string[]> = {
+                                    '1': ['1.1'],
+                                    '2': ['2.1','2.2','2.3','2.4'],
+                                    '3': ['3.1','3.2','3.3','3.4','3.5'],
+                                    '4': ['4.1','4.2'],
+                                  };
+                                  const ids = editableIds[catNum];
+                                  if (!ids) return <span>Attendu</span>;
+                                  const isSaving = cardSaving[catNum];
+                                  const isSaved = cardSaved[catNum];
+                                  return (
+                                    <div className="flex items-center gap-2">
+                                      <span>Attendu</span>
+                                      <button
+                                        onClick={() => saveCardExpected(catNum, ids)}
+                                        disabled={isSaving}
+                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                                          isSaved
+                                            ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                            : isSaving
+                                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
+                                            : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                                        }`}
+                                        title="Sauvegarder tous les attendus de cette carte"
+                                      >
+                                        {isSaved ? '✓' : isSaving ? '…' : '💾'}
+                                      </button>
+                                    </div>
+                                  );
+                                })()}
+                              </th>
                               {maquettes.length === 0
                                 ? <th className="text-center px-3 py-2 text-slate-300 italic font-normal">← Chargez des maquettes</th>
                                 : maquettes.map(m => {
@@ -1085,48 +1144,37 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     );
                                   })
                               }
-                            </tr>
-                          </thead>                          <tbody>
-                            {cat.items.map((item, ii) => {                              // ── 1.1 : pattern de nommage éditable + vérification auto ──
+                            </tr>                          </thead>
+                          <tbody>
+                            {cat.items.map((item, ii) => {
+                              // ── 1.1 : pattern de nommage éditable ──
                               if (item.id === '1.1') {
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-top whitespace-nowrap">{item.id}</td>
-                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>                                    <td className="px-3 py-3 align-top">                                      <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
-                                      <div className="flex items-center gap-2">
-                                        <input
-                                          type="text"
-                                          value={namingPattern}
-                                          onChange={e => { setNamingPattern(e.target.value); setPatternSaved(false); }}
-                                          placeholder="ex: PRJ_*_ARC_* ou OTEIS_*"
-                                          className="flex-1 text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
-                                        />
-                                        <button
-                                          onClick={saveNamingPattern}
-                                          disabled={patternSaving || !namingPattern.trim()}
-                                          className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                            patternSaved
-                                              ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                                              : patternSaving
-                                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
-                                              : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                                          }`}
-                                          title="Sauvegarder sur Supabase"
-                                        >
-                                          {patternSaved ? '✓ Sauvegardé' : patternSaving ? '…' : 'OK'}
-                                        </button>
-                                      </div>
-                                      <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p></td>
+                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>
+                                    <td className="px-3 py-3 align-top">
+                                      <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
+                                      <input
+                                        type="text"
+                                        value={namingPattern}
+                                        onChange={e => { setNamingPattern(e.target.value); setPatternSaved(false); }}
+                                        placeholder="ex: PRJ_*_ARC_* ou OTEIS_*"
+                                        className="w-full text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50 font-mono"
+                                      />
+                                      <p className="text-[9px] text-slate-400 mt-1">Utilisez <code className="bg-slate-100 px-1 rounded">*</code> comme joker. Ex&nbsp;: <code className="bg-slate-100 px-1 rounded">PRJ_*_ARC_EXE</code></p>
+                                    </td>
                                     {maquettes.map(m => {
-                                      const status = checkNaming(m.project_name, namingPattern);                                      const map: Record<CellStatus, { bg: string; label: string }> = {
+                                      const status = checkNaming(m.project_name, namingPattern);
+                                      const statusStyles: Record<CellStatus, { bg: string; label: string }> = {
                                         ok:      { bg: 'bg-emerald-100 text-emerald-700', label: '✓' },
-                                        error:   { bg: 'bg-red-100 text-red-600',          label: '✗' },
+                                        error:   { bg: 'bg-red-100 text-red-600',         label: '✗' },
                                         warning: { bg: 'bg-orange-100 text-orange-600',   label: '⚠' },
                                         na:      { bg: 'bg-slate-100 text-slate-400',      label: 'N/A' },
-                                        unclear: { bg: 'bg-violet-50 text-violet-400',     label: '?' },
+                                        unclear: { bg: 'bg-violet-50 text-violet-400',    label: '?' },
                                         '':      { bg: 'bg-slate-50 text-slate-300',       label: '—' },
                                       };
-                                      const { bg, label } = map[status];
+                                      const { bg, label } = statusStyles[status];
                                       const comment = aiComments[`${item.id}-${m.id}`];
                                       return (
                                         <td key={m.id} className="px-1.5 py-2 align-top">
@@ -1145,15 +1193,19 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         </td>
                                       );
                                     })}
-                                    {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
+                                    {maquettes.length === 0 && (
+                                      <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                                    )}
                                   </tr>
                                 );
-                              }                              // ── 1.2 : format IFC — auto OK car seuls les .ifc sont acceptés ──
+                              }
+                              // ── 1.2 : format IFC — auto OK ──
                               if (item.id === '1.2') {
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
-                                    <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                    <td className="px-3 py-2 text-slate-400 italic align-middle leading-snug">{item.expected}</td>
+                                    <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>
+                                    <td className="px-3 py-2 text-slate-400 italic align-middle leading-snug">{item.expected}</td>
                                     {maquettes.map(m => (
                                       <td key={m.id} className="px-1.5 py-1.5 align-top">
                                         <div className="w-full h-7 rounded text-[11px] font-bold flex items-center justify-center bg-emerald-100 text-emerald-700" title="Seuls les fichiers .ifc sont acceptés">
@@ -1164,17 +1216,22 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         )}
                                       </td>
                                     ))}
-                                    {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
+                                    {maquettes.length === 0 && (
+                                      <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                                    )}
                                   </tr>
                                 );
-                              }                              // ── 1.3 : taille du fichier — non vérifiable, cliquable avec info ──
+                              }
+                              // ── 1.3 : taille du fichier — cliquable manuellement ──
                               if (item.id === '1.3') {
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
-                                    <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                    <td className="px-3 py-2 align-middle leading-snug">
+                                    <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>
+                                    <td className="px-3 py-2 align-middle leading-snug">
                                       <span className="text-slate-400 italic">{item.expected}</span>
-                                      <p className="text-[9px] text-orange-400 mt-0.5">⚠ Vérification manuelle requise</p>                                    </td>
+                                      <p className="text-[9px] text-orange-400 mt-0.5">⚠ Vérification manuelle requise</p>
+                                    </td>
                                     {maquettes.map(m => {
                                       const st = cells[`${item.id}-${m.id}`] ?? '';
                                       const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
@@ -1193,45 +1250,30 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         </td>
                                       );
                                     })}
-                                    {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
+                                    {maquettes.length === 0 && (
+                                      <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                                    )}
                                   </tr>
                                 );
-                              }                              // ── 2.1-2.4 / 3.1-3.4 : champ attendu éditable + bouton OK ──
-                              if (['2.1', '2.2', '2.3', '2.4', '3.1', '3.2', '3.3', '3.4', '3.5', '4.1', '4.2'].includes(item.id)) {
+                              }
+                              // ── 2.x / 3.x / 4.x : champ attendu éditable (sauvegarde via bouton carte) ──
+                              if (['2.1','2.2','2.3','2.4','3.1','3.2','3.3','3.4','3.5','4.1','4.2'].includes(item.id)) {
                                 const val = customExpected[item.id] ?? '';
-                                const isSaving = customSaving[item.id];
-                                const isSaved = customSaved[item.id];
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-top whitespace-nowrap">{item.id}</td>
                                     <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>
                                     <td className="px-3 py-3 align-top">
                                       <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
-                                      <div className="flex items-center gap-2">
-                                        <input
-                                          type="text"
-                                          value={val}
-                                          onChange={e => setCustomExpected(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                          placeholder="Renseigner l'attendu…"
-                                          className="flex-1 text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
-                                        />
-                                        <button
-                                          onClick={() => saveCustomExpected(item.id)}
-                                          disabled={isSaving || !val.trim()}
-                                          className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                            isSaved
-                                              ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                                              : isSaving
-                                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
-                                              : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                                          }`}
-                                          title="Sauvegarder sur Supabase"
-                                        >
-                                          {isSaved ? '✓ Sauvegardé' : isSaving ? '…' : 'OK'}
-                                        </button>
-                                      </div>
-                                    </td>                                    {maquettes.map(m => {
-                                      // Si pas d'attendu renseigné → Sans Objet
+                                      <input
+                                        type="text"
+                                        value={val}
+                                        onChange={e => setCustomExpected(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                        placeholder="Renseigner l'attendu…"
+                                        className="w-full text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
+                                      />
+                                    </td>
+                                    {maquettes.map(m => {
                                       const hasExpected = !!(customExpected[item.id]?.trim());
                                       if (!hasExpected) {
                                         return (
@@ -1259,39 +1301,43 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                         </td>
                                       );
                                     })}
-                                    {maquettes.length === 0 && <td className="px-3 py-2 text-slate-300 italic text-center">—</td>}
+                                    {maquettes.length === 0 && (
+                                      <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                                    )}
                                   </tr>
                                 );
                               }
-
                               // ── Cas général : cellule cliquable ──
-                              return (                              <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/30 transition-colors`}>
-                                <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
-                                <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>                                <td className="px-3 py-2 text-slate-400 italic align-top leading-snug">{item.expected}</td>
-                                {maquettes.map(m => {
-                                  const st = cells[`${item.id}-${m.id}`] ?? '';
-                                  const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
-                                  const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
-                                  const { bg, label } = statusMap[st];
-                                  const comment = aiComments[`${item.id}-${m.id}`];
-                                  return (
-                                    <td key={m.id} className="px-1.5 py-1.5 align-top">
-                                      <button onClick={next} title="Cliquer pour changer le statut"
-                                        className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}>
-                                        {label}
-                                      </button>
-                                      {comment && (
-                                        <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{comment}</p>
-                                      )}
-                                    </td>
-                                  );
-                                })}
-                                {maquettes.length === 0 && (
-                                  <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
-                                )}
-                              </tr>
+                              return (
+                                <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/30 transition-colors`}>
+                                  <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-middle whitespace-nowrap">{item.id}</td>
+                                  <td className="px-3 py-2 text-slate-700 font-medium align-middle leading-snug">{item.label}</td>
+                                  <td className="px-3 py-2 text-slate-400 italic align-top leading-snug">{item.expected}</td>
+                                  {maquettes.map(m => {
+                                    const st = cells[`${item.id}-${m.id}`] ?? '';
+                                    const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
+                                    const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
+                                    const { bg, label } = statusMap[st];
+                                    const comment = aiComments[`${item.id}-${m.id}`];
+                                    return (
+                                      <td key={m.id} className="px-1.5 py-1.5 align-top">
+                                        <button onClick={next} title="Cliquer pour changer le statut"
+                                          className={`w-full h-7 rounded text-[11px] font-bold transition-colors ${bg} hover:opacity-80`}>
+                                          {label}
+                                        </button>
+                                        {comment && (
+                                          <p className="text-[9px] text-violet-600 mt-1 leading-tight px-0.5 italic">{comment}</p>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  {maquettes.length === 0 && (
+                                    <td className="px-3 py-2 text-slate-300 italic text-center">—</td>
+                                  )}
+                                </tr>
                               );
-                            })}                          </tbody>
+                            })}
+                          </tbody>
                         </table>
                       </div>
                     </div>
