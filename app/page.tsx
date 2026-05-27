@@ -161,6 +161,172 @@ function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: C
   );
 }
 
+// ─────────────────────────────────────────────
+// PARAMÈTRES VIEW — tableau "Nom du type" par maquette
+// ─────────────────────────────────────────────
+function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
+  const maquettes = audits.slice(0, 6);
+
+  // typeNames[maqId] = string[] | null (null = pas encore chargé, [] = chargé vide)
+  const [typeNames, setTypeNames] = useState<Record<number, string[] | null>>({});
+  const [typeLoading, setTypeLoading] = useState<Record<number, boolean>>({});
+  const [typeError, setTypeError] = useState<Record<number, string>>({});
+
+  // Charger les noms de types pour toutes les maquettes au montage
+  useEffect(() => {
+    if (maquettes.length === 0) return;
+    maquettes.forEach(async (audit) => {
+      const { fileId } = parseMaquetteDetails(audit.details);
+      if (!fileId || typeNames[audit.id] !== undefined) return;
+      setTypeLoading(prev => ({ ...prev, [audit.id]: true }));
+      try {
+        const res = await fetch('/api/ifc-types', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+        setTypeNames(prev => ({ ...prev, [audit.id]: data.typeNames ?? [] }));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setTypeError(prev => ({ ...prev, [audit.id]: msg }));
+        setTypeNames(prev => ({ ...prev, [audit.id]: [] }));
+      } finally {
+        setTypeLoading(prev => ({ ...prev, [audit.id]: false }));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audits]);
+
+  // Union triée de tous les noms de types trouvés toutes maquettes confondues
+  const allTypeNames = Array.from(
+    new Set(
+      maquettes.flatMap(m => typeNames[m.id] ?? [])
+    )
+  ).sort((a, b) => a.localeCompare(b, 'fr'));
+
+  const anyLoading = maquettes.some(m => typeLoading[m.id]);
+
+  if (loading) {
+    return <p className="text-slate-400 italic animate-pulse">Chargement des maquettes…</p>;
+  }
+  if (maquettes.length === 0) {
+    return <p className="text-slate-400 italic">Aucune maquette chargée.</p>;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-3xl font-bold text-slate-900">Paramètres</h2>
+          <p className="text-slate-500 text-sm mt-1">
+            Valeurs de la propriété <span className="font-semibold text-slate-700">«&nbsp;Nom du type&nbsp;»</span> extraites de chaque maquette IFC
+          </p>
+        </div>
+        {anyLoading && (
+          <div className="flex items-center gap-2 text-blue-600 text-sm font-medium animate-pulse">
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            Lecture des fichiers IFC…
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b-2 border-slate-200">
+                <th className="text-left px-4 py-3 font-bold text-slate-400 uppercase tracking-wide w-8">#</th>
+                <th className="text-left px-4 py-3 font-bold text-slate-700 uppercase tracking-wide min-w-[220px]">
+                  Nom du type
+                </th>
+                {maquettes.map(m => {
+                  const { discipline } = parseMaquetteDetails(m.details);
+                  return (
+                    <th key={m.id} className="text-center px-4 py-3 font-bold text-slate-700 uppercase tracking-wide min-w-[140px]">
+                      <div className="text-[10px] font-bold text-blue-500 mb-0.5">{discipline || '—'}</div>
+                      <div className="truncate max-w-[160px] text-slate-600 normal-case font-semibold text-[11px]" title={m.project_name}>
+                        {m.project_name}
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {allTypeNames.length === 0 && !anyLoading ? (
+                <tr>
+                  <td colSpan={2 + maquettes.length} className="text-center py-10 text-slate-400 italic">
+                    Aucun «&nbsp;Nom du type&nbsp;» trouvé dans les maquettes chargées.
+                  </td>
+                </tr>
+              ) : (
+                allTypeNames.map((typeName, idx) => (
+                  <tr key={typeName} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                    <td className="px-4 py-2.5 text-slate-400 font-mono text-[10px] border-b border-slate-100">
+                      {idx + 1}
+                    </td>
+                    <td className="px-4 py-2.5 font-medium text-slate-800 border-b border-slate-100">
+                      {typeName}
+                    </td>
+                    {maquettes.map(m => {
+                      const names = typeNames[m.id];
+                      const isLoading = typeLoading[m.id];
+                      const err = typeError[m.id];
+                      const present = names?.includes(typeName);
+                      return (
+                        <td key={m.id} className="px-4 py-2.5 text-center border-b border-slate-100">
+                          {isLoading ? (
+                            <span className="inline-block w-4 h-4 rounded-full bg-slate-200 animate-pulse" />
+                          ) : err ? (
+                            <span className="text-red-400" title={err}>⚠</span>
+                          ) : present ? (
+                            <span className="inline-flex items-center justify-center w-5 h-5 bg-emerald-100 rounded-full">
+                              <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center justify-center w-5 h-5 bg-slate-100 rounded-full">
+                              <svg className="w-3 h-3 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+                              </svg>
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {allTypeNames.length > 0 && (
+              <tfoot>
+                <tr className="bg-slate-50 border-t-2 border-slate-200">
+                  <td className="px-4 py-2.5 font-bold text-slate-500 text-[10px] uppercase tracking-wide" colSpan={2}>
+                    Total : {allTypeNames.length} type{allTypeNames.length > 1 ? 's' : ''}
+                  </td>
+                  {maquettes.map(m => {
+                    const count = typeNames[m.id]?.length ?? 0;
+                    return (
+                      <td key={m.id} className="px-4 py-2.5 text-center font-bold text-slate-600">
+                        {typeLoading[m.id] ? '…' : `${count} type${count > 1 ? 's' : ''}`}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RapportsView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
   const maquettes = audits.slice(0, 6);
   const totalItems = RAPPORT_CATEGORIES.reduce((s, c) => s + c.items.length, 0);
@@ -1885,9 +2051,10 @@ export default function Dashboard() {
                 onDelete={handleDelete}
                 chapitresOnly
               />
-            </>
-          ) : activeTab === 'Rapports' ?(
+            </>          ) : activeTab === 'Rapports' ? (
             <RapportsView audits={audits} loading={loading} />
+          ) : activeTab === 'Paramètres' ? (
+            <ParametresView audits={audits} loading={loading} />
           ) : (
             <>
           <div className="flex justify-between items-end mb-8">
