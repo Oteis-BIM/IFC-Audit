@@ -76,7 +76,7 @@ const RAPPORT_CATEGORIES: { section: string; category: string; items: { id: stri
   },
   {
     section: "FICHIER IFC",
-    category: "4 — ATTRIBUTS IFC (IfcBuilding)",
+    category: "4 — ATTRIBUTS BATIMENT (IfcBuilding)",
     items: [      { id: "4.1", label: "Nom (Name)", expected: "" },
       { id: "4.2", label: "Adresse", expected: "" },
     ],
@@ -800,9 +800,24 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                             <th className="text-left px-3 py-2.5 font-bold text-slate-400 w-8">#</th>
                             <th className="text-left px-3 py-2.5 font-bold text-slate-700 uppercase tracking-wide text-[10px] min-w-[170px]">
                               NOM NIVEAU IFC
-                            </th>
-                            <th className="text-right px-3 py-2.5 font-bold text-slate-700 uppercase tracking-wide text-[10px] min-w-[110px]">
-                              ALT. NIVEAU
+                            </th>                            <th className="text-right px-3 py-2.5 font-bold text-slate-700 uppercase tracking-wide text-[10px] min-w-[160px]">
+                              <div className="flex items-center justify-end gap-2">
+                                <span>ALT. NIVEAU</span>
+                                <button
+                                  onClick={saveExpectedLevels}
+                                  disabled={levelsSaving}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                                    levelsSaved
+                                      ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                                      : levelsSaving
+                                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
+                                      : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                                  }`}
+                                  title="Sauvegarder les niveaux attendus sur Supabase"
+                                >
+                                  {levelsSaved ? '✓' : levelsSaving ? '…' : '💾'}
+                                </button>
+                              </div>
                             </th>
                             {maquettes.map(m => {
                               const { discipline } = parseMaquetteDetails(m.details);
@@ -968,8 +983,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                         </tbody>
                         <tfoot>
                           <tr className="border-t border-slate-200 bg-slate-50">
-                            <td colSpan={3 + maquettes.length} className="px-3 py-2">
-                              <div className="flex items-center gap-4">
+                            <td colSpan={3 + maquettes.length} className="px-3 py-2">                              <div className="flex items-center gap-4">
                                 <button
                                   onClick={() => setExpectedLevels(prev => [...prev, { name: '', elevation: '' }])}
                                   className="text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors"
@@ -983,25 +997,12 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   >
                                     − Supprimer le dernier
                                   </button>
-                                )}                                {hasAnyStoreys && (
+                                )}
+                                {hasAnyStoreys && (
                                   <span className="ml-auto text-[10px] text-slate-400">
                                     Alt. en mètres (NGF) · tolérance ±50 mm
                                   </span>
                                 )}
-                                <button
-                                  onClick={saveExpectedLevels}
-                                  disabled={levelsSaving}
-                                  className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                    levelsSaved
-                                      ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                                      : levelsSaving
-                                      ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait'
-                                      : 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                                  }`}
-                                  title="Sauvegarder les niveaux attendus sur Supabase"
-                                >
-                                  {levelsSaved ? '✓ Sauvegardé' : levelsSaving ? '…' : '💾 Sauvegarder'}
-                                </button>
                               </div>
                             </td>
                           </tr>
