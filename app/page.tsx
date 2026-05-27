@@ -1004,8 +1004,48 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 )}
                               </tr>
                             );
-                          })}
-                        </tbody>
+                          })}                        </tbody>
+                        {/* Niveaux IFC présents dans les maquettes mais absents des attendus */}
+                        {hasAnyStoreys && (() => {
+                          const definedNames = new Set(
+                            expectedLevels.map(l => l.name.trim().toLowerCase()).filter(Boolean)
+                          );
+                          // Pour chaque maquette, collecter les niveaux non définis
+                          const extraByMaquette = maquettes.map(m => ({
+                            m,
+                            extras: (ifcStoreys[m.id] ?? []).filter(
+                              s => s.name && !definedNames.has(s.name.trim().toLowerCase())
+                            ),
+                          })).filter(({ extras }) => extras.length > 0);
+
+                          if (extraByMaquette.length === 0) return null;
+                          return (
+                            <tfoot>
+                              <tr className="border-t-2 border-orange-200 bg-orange-50/60">
+                                <td colSpan={3 + maquettes.length} className="px-3 py-2">
+                                  <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wide mb-1.5">
+                                    ⚠ Niveaux IFC présents dans la maquette mais non définis dans les attendus
+                                  </p>
+                                  <div className="flex flex-wrap gap-4">
+                                    {extraByMaquette.map(({ m, extras }) => {
+                                      const { discipline } = parseMaquetteDetails(m.details);
+                                      return (
+                                        <div key={m.id} className="text-[10px]">
+                                          <span className="font-semibold text-orange-700">
+                                            {discipline || m.project_name.replace(/\.ifc$/i, '').slice(0, 14)}
+                                          </span>
+                                          <span className="text-orange-500 ml-1">
+                                            {extras.map(s => `${s.name}${s.elevation !== null ? ` (${(s.elevation / 1000).toFixed(3)} m)` : ''}`).join(' · ')}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                              </tr>
+                            </tfoot>
+                          );
+                        })()}
                         <tfoot>
                           <tr className="border-t border-slate-200 bg-slate-50">
                             <td colSpan={3 + maquettes.length} className="px-3 py-2">                              <div className="flex items-center gap-4">

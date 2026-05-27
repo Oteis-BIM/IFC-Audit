@@ -61,11 +61,12 @@ interface IfcFacts {
   mapConversion: { easting: number | null; northing: number | null; height: number | null } | null;
   building: { name: string } | null;
   siteAddress: string | null;
+  storeys: { name: string; elevation: number | null }[];
 }
 
 function extractIfcFacts(raw: string): IfcFacts {
   const index = buildEntityIndex(raw);
-  const facts: IfcFacts = { project: null, site: null, siteCoords: null, mapConversion: null, building: null, siteAddress: null };
+  const facts: IfcFacts = { project: null, site: null, siteCoords: null, mapConversion: null, building: null, siteAddress: null, storeys: [] };
 
   // IFCPROJECT
   for (const [, body] of index) {
@@ -215,6 +216,20 @@ function extractIfcFacts(raw: string): IfcFacts {
         facts.siteAddress = parsePostalAddress(body);
         break;
       }
+    }
+  }
+
+  // IFCBUILDINGSTOREY — niveaux (critère 5.x)
+  // args[2] = Name, args[9] = Elevation (en mètres dans IFC2x3/IFC4)
+  for (const [, body] of index) {
+    if (body.toUpperCase().startsWith('IFCBUILDINGSTOREY(')) {
+      const args = parseArgs(body);
+      const name = stepStr(args[2] ?? '');
+      const elevRaw = args[9] ?? '$';
+      const elevM = elevRaw === '$' ? null : parseFloat(elevRaw);
+      // Convertir en mm pour cohérence avec le reste du parser
+      const elevMm = elevM === null || isNaN(elevM) ? null : Math.round(elevM * 1000);
+      facts.storeys.push({ name, elevation: elevMm });
     }
   }
 
