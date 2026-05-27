@@ -275,6 +275,18 @@ export async function POST(req: NextRequest) {
   try {
     const { fileId, fileName, discipline, criteria, ngfOffsetMm } = await req.json();
     type Criterion = { id: string; label: string; expected: string };
+
+    // Dériver l'offset NGF depuis le critère 3.5 (Élévation Z attendue = niveau NGF du projet)
+    // Priorité : paramètre explicite ngfOffsetMm > critère 3.5 attendu
+    const criteriaList: Criterion[] = Array.isArray(criteria) && criteria.length > 0 ? criteria : [];
+    const crit35 = criteriaList.find(c => c.id === '3.5');
+    const crit35Mm = crit35 ? parseFloat(crit35.expected) : NaN;
+    const resolvedNgfOffsetMm: number | undefined =
+      typeof ngfOffsetMm === 'number' && !isNaN(ngfOffsetMm)
+        ? ngfOffsetMm
+        : !isNaN(crit35Mm)
+        ? crit35Mm
+        : undefined;
     if (!fileId || !fileName) {
       return NextResponse.json({ error: 'fileId et fileName requis' }, { status: 400 });
     }
@@ -307,7 +319,7 @@ export async function POST(req: NextRequest) {
     const buffer = await boxRes.arrayBuffer();
     const raw = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
 
-    const facts = extractIfcFacts(raw, typeof ngfOffsetMm === 'number' ? ngfOffsetMm : undefined);
+    const facts = extractIfcFacts(raw, resolvedNgfOffsetMm);
     const ifcContent = extractIfcContent(raw);
 
     const coords = facts.mapConversion
@@ -360,7 +372,6 @@ export async function POST(req: NextRequest) {
         : '- Aucun niveau trouve',
     ].join('\n');
 
-    const criteriaList: Criterion[] = Array.isArray(criteria) && criteria.length > 0 ? criteria : [];
     const criteriaText = criteriaList.map(c => `- ${c.id} | ${c.label} | Attendu : ${c.expected}`).join('\n');
     const criteriaIds = criteriaList.map(c => c.id).join(', ');
 

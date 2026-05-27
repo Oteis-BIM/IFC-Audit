@@ -455,8 +455,6 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   const [levelsSaved, setLevelsSaved] = useState(false);  // Sauvegarde par carte (clé = numéro de carte ex: "1", "2", "3", "4")
   const [cardSaving, setCardSaving] = useState<Record<string, boolean>>({});
   const [cardSaved, setCardSaved] = useState<Record<string, boolean>>({});
-  // Offset NGF projet (mm) — utilisé comme fallback pour les maquettes sans RefElevation IFC
-  const [projectNgfOffset, setProjectNgfOffset] = useState('');
   // Niveaux trouvés par l'IA pour chaque maquette : maqId -> storeys[]
   const [ifcStoreys, setIfcStoreys] = useState<Record<number, { name: string; elevation: number | null }[]>>({});// Charger le pattern sauvegardé au montage (Supabase avec fallback localStorage)
   useEffect(() => {
@@ -488,12 +486,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
             if (Array.isArray(parsed) && parsed.length > 0) setExpectedLevels(parsed);
           } catch { /* ignore */ }
         }
-      });
-
-    // Charger l'offset NGF projet
-    const savedOffset = localStorage.getItem('project_ngf_offset');
-    if (savedOffset) setProjectNgfOffset(savedOffset);
-  }, []);
+      });  }, []);
 
   async function saveNamingPattern() {
     if (!namingPattern.trim()) return;
@@ -598,7 +591,7 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
       const res = await fetch('/api/ai-audit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileId, fileName: audit.project_name, discipline, criteria, ngfOffsetMm: projectNgfOffset ? parseFloat(projectNgfOffset) : undefined }),
+        body: JSON.stringify({ fileId, fileName: audit.project_name, discipline, criteria }),
       });
       const data = await res.json();      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);      // Injecter les résultats dans les cellules
       const results: Record<string, { status: string; comment: string }> = data.results ?? {};
@@ -816,26 +809,10 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                 );
                 const hasAnyStoreys = maquettes.some(m => (ifcStoreys[m.id]?.length ?? 0) > 0);
 
-                return (                  <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
+                return (                  <div key={cat.category} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">                    <div className="bg-blue-600 px-5 py-3 flex items-center justify-between">
                       <div>
                         <span className="text-[10px] font-semibold text-blue-200 uppercase tracking-widest">{cat.section}</span>
                         <div className="text-sm font-bold text-white">{cat.category}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-[10px] text-blue-200 font-semibold whitespace-nowrap">Offset NGF projet (mm) :</label>
-                        <input
-                          type="number"
-                          value={projectNgfOffset}
-                          onChange={e => {
-                            setProjectNgfOffset(e.target.value);
-                            localStorage.setItem('project_ngf_offset', e.target.value);
-                          }}
-                          placeholder="ex: 47300"
-                          className="w-28 text-xs border border-blue-400 rounded-lg px-2 py-1 bg-blue-700 text-white placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-white font-mono text-right"
-                          title="Altitude NGF de référence du projet en mm — utilisé comme fallback pour les maquettes sans RefElevation IFC"
-                        />
-                        <span className="text-[10px] text-blue-300">mm NGF</span>
                       </div>
                     </div>
                     <div className="overflow-x-auto">
