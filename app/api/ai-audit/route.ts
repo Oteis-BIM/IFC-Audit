@@ -64,7 +64,7 @@ interface IfcFacts {
   storeys: { name: string; elevation: number | null }[];
 }
 
-function extractIfcFacts(raw: string): IfcFacts {
+function extractIfcFacts(raw: string, projectNgfOffsetMm?: number): IfcFacts {
   const index = buildEntityIndex(raw);
   const facts: IfcFacts = { project: null, site: null, siteCoords: null, mapConversion: null, building: null, siteAddress: null, storeys: [] };
 
@@ -234,6 +234,8 @@ function extractIfcFacts(raw: string): IfcFacts {
       ? Math.round(facts.mapConversion.height * 1000)
       : facts.siteCoords?.z != null
       ? facts.siteCoords.z
+      : projectNgfOffsetMm != null && !isNaN(projectNgfOffsetMm)
+      ? projectNgfOffsetMm
       : 0;
 
   for (const [, body] of index) {
@@ -271,7 +273,7 @@ function extractIfcContent(raw: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { fileId, fileName, discipline, criteria } = await req.json();
+    const { fileId, fileName, discipline, criteria, ngfOffsetMm } = await req.json();
     type Criterion = { id: string; label: string; expected: string };
     if (!fileId || !fileName) {
       return NextResponse.json({ error: 'fileId et fileName requis' }, { status: 400 });
@@ -305,7 +307,7 @@ export async function POST(req: NextRequest) {
     const buffer = await boxRes.arrayBuffer();
     const raw = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
 
-    const facts = extractIfcFacts(raw);
+    const facts = extractIfcFacts(raw, typeof ngfOffsetMm === 'number' ? ngfOffsetMm : undefined);
     const ifcContent = extractIfcContent(raw);
 
     const coords = facts.mapConversion
