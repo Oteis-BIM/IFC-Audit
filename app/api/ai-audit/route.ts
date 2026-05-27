@@ -350,6 +350,12 @@ export async function POST(req: NextRequest) {
             `- Source : ${coords.src}`,
           ].join('\n')
         : '- Coordonnees non trouvees dans le fichier',
+      '',
+      '### IFCBUILDINGSTOREY — Altimetries NGF calculees par le parser (criteres 5.x) :',
+      '⚠️ ATTENTION : Ces valeurs sont en mm NGF (altitude absolue = elevation relative IFC + offset NGF du site). Ne pas confondre avec les elevations relatives brutes du fichier IFC.',
+      facts.storeys.length > 0
+        ? facts.storeys.map(s => `- Niveau "${s.name}" : ${s.elevation !== null ? `${s.elevation} mm NGF` : '(elevation non definie)'}`).join('\n')
+        : '- Aucun niveau trouve',
     ].join('\n');
 
     const criteriaList: Criterion[] = Array.isArray(criteria) && criteria.length > 0 ? criteria : [];
@@ -371,6 +377,7 @@ Regles de comparaison :
 - Champs texte (Name, LongName, Description, Phase) : compare exactement la valeur extraite a la valeur attendue. Vide ou absent -> "error".
 - Coordonnees numeriques (en mm) : si l attendu est un nombre, compare numeriquement (ignorer les decimales si l entier est identique). Egal -> "ok", different -> "error".
 - Pour les criteres 2.x, 3.x et 4.x : utilise UNIQUEMENT les faits extraits ci-dessus, jamais l extrait IFC brut.
+- Pour les criteres 5.x : utilise UNIQUEMENT les altimetries NGF de la section IFCBUILDINGSTOREY ci-dessus (valeurs en mm NGF calculees par le parser). NE JAMAIS utiliser les elevations brutes de l extrait IFC. Tolerance : ±50 mm.
 - Toujours indiquer dans le commentaire : la valeur trouvee ET la valeur attendue.
 - IDs numeriques uniquement : "2.1", "3.3", jamais "B2.1" ou "C3.3".
 
