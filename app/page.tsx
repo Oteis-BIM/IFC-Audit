@@ -162,165 +162,326 @@ function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: C
 }
 
 // ─────────────────────────────────────────────
-// PARAMÈTRES VIEW — tableau "Nom du type" par maquette
+// PARAMÈTRES VIEW — Mappage catégories IFC + vérification propriétés
 // ─────────────────────────────────────────────
+
+// Types IFC standards reconnus et leur catégorie par défaut
+const IFC_TYPE_DEFAULTS: Record<string, string> = {
+  IfcWallStandardCase: 'Murs Porteurs',
+  IfcWall: 'Murs',
+  IfcBeam: 'Poutres Structurelles',
+  IfcColumn: 'Poteaux',
+  IfcSlab: 'Dalles',
+  IfcRoof: 'Toiture',
+  IfcDoor: 'Portes',
+  IfcWindow: 'Fenêtres',
+  IfcStair: 'Escaliers',
+  IfcRailing: 'Garde-corps',
+  IfcCovering: 'Revêtements',
+  IfcFurnishingElement: 'Mobilier',
+  IfcFlowSegment: 'Réseaux',
+  IfcFlowTerminal: 'Équipements Terminaux',
+  IfcDistributionFlowElement: 'Distribution Fluides',
+  IfcElectricDistributionBoard: 'Tableau Électrique',
+  IfcLightFixture: 'Luminaires',
+  IfcOutlet: 'Prises/Interrupteurs',
+  IfcPile: 'Pieux',
+  IfcFooting: 'Fondations',
+};
+
+// Propriétés attendues par catégorie (personnalisables)
+const DEFAULT_CATEGORY_PROPS: Record<string, string[]> = {
+  'Murs Porteurs':        ['Résistance Feu', 'Coefficient U', 'Matériau', 'Épaisseur', 'Acoustique'],
+  'Murs':                 ['Résistance Feu', 'Coefficient U', 'Matériau', 'Épaisseur'],
+  'Poutres Structurelles':['Matériau', 'Section', 'Résistance', 'Traitement'],
+  'Poteaux':              ['Matériau', 'Section', 'Résistance'],
+  'Dalles':               ['Résistance Feu', 'Matériau', 'Épaisseur', 'Charge Admissible'],
+  'Toiture':              ['Résistance Feu', 'Coefficient U', 'Matériau', 'Pente'],
+  'Portes':               ['Résistance Feu', 'Matériau', 'Largeur', 'Hauteur'],
+  'Fenêtres':             ['Coefficient U', 'Facteur Solaire', 'Largeur', 'Hauteur'],
+  'Luminaires':           ['Puissance', 'Flux Lumineux', 'Indice Protection', 'Marque'],
+  'Prises/Interrupteurs': ['Tension', 'Intensité', 'Indice Protection'],
+  'Tableau Électrique':   ['Puissance Totale', 'Indice Protection', 'Marque'],
+};
+
+type MappingRule = 'Auto-detect' | 'Manual Mapping' | 'Excluded';
+type MappingRow = { ifcType: string; category: string; rule: MappingRule; aiStatus: 'Verified' | 'Incohérence Nommage' | 'Warning' | '' };
+
 function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
-  const maquettes = audits.slice(0, 6);
+  const [selectedAuditId, setSelectedAuditId] = useState<number | null>(null);
+  const selectedAudit = audits.find(a => a.id === selectedAuditId) ?? audits[0] ?? null;
 
-  // typeNames[maqId] = string[] | null (null = pas encore chargé, [] = chargé vide)
-  const [typeNames, setTypeNames] = useState<Record<number, string[] | null>>({});
-  const [typeLoading, setTypeLoading] = useState<Record<number, boolean>>({});
-  const [typeError, setTypeError] = useState<Record<number, string>>({});
+  // Mapping IFC type → catégorie (éditable)
+  const [mappingRows, setMappingRows] = useState<MappingRow[]>(() =>
+    Object.entries(IFC_TYPE_DEFAULTS).map(([ifcType, category]) => ({
+      ifcType,
+      category,
+      rule: 'Auto-detect' as MappingRule,
+      aiStatus: 'Verified' as const,
+    }))
+  );
 
-  // Charger les noms de types pour toutes les maquettes au montage
+  // Propriétés attendues par catégorie (éditable)
+  const [categoryProps, setCategoryProps] = useState<Record<string, string[]>>(DEFAULT_CATEGORY_PROPS);
+
+  // Filtre "manquants seulement" par catégorie
+  const [filterMissing, setFilterMissing] = useState<Record<string, boolean>>({});
+
+  // Edition inline
+  const [editingRow, setEditingRow] = useState<number | null>(null);
+
+  const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
+
   useEffect(() => {
-    if (maquettes.length === 0) return;
-    maquettes.forEach(async (audit) => {
-      const { fileId } = parseMaquetteDetails(audit.details);
-      if (!fileId || typeNames[audit.id] !== undefined) return;
-      setTypeLoading(prev => ({ ...prev, [audit.id]: true }));
-      try {
-        const res = await fetch('/api/ifc-types', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileId }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-        setTypeNames(prev => ({ ...prev, [audit.id]: data.typeNames ?? [] }));
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setTypeError(prev => ({ ...prev, [audit.id]: msg }));
-        setTypeNames(prev => ({ ...prev, [audit.id]: [] }));
-      } finally {
-        setTypeLoading(prev => ({ ...prev, [audit.id]: false }));
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audits]);
+    if (!selectedAuditId && audits.length > 0) setSelectedAuditId(audits[0].id);
+  }, [audits, selectedAuditId]);
 
-  // Union triée de tous les noms de types trouvés toutes maquettes confondues
-  const allTypeNames = Array.from(
-    new Set(
-      maquettes.flatMap(m => typeNames[m.id] ?? [])
-    )
-  ).sort((a, b) => a.localeCompare(b, 'fr'));
+  if (loading) return <p className="text-slate-400 italic animate-pulse">Chargement…</p>;
+  if (audits.length === 0) return <p className="text-slate-400 italic">Aucune maquette chargée.</p>;
 
-  const anyLoading = maquettes.some(m => typeLoading[m.id]);
-
-  if (loading) {
-    return <p className="text-slate-400 italic animate-pulse">Chargement des maquettes…</p>;
-  }
-  if (maquettes.length === 0) {
-    return <p className="text-slate-400 italic">Aucune maquette chargée.</p>;
+  // Simuler des données de présence (rempli / manquant) pour la démo
+  // En production : ces données viendraient d'un parser IFC
+  function mockCellStatus(ifcType: string, prop: string): 'Remplie' | 'Manquante' {
+    const hash = (ifcType + prop).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    return hash % 5 === 0 ? 'Manquante' : 'Remplie';
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex items-start justify-between">
         <div>
           <h2 className="text-3xl font-bold text-slate-900">Paramètres</h2>
-          <p className="text-slate-500 text-sm mt-1">
-            Valeurs de la propriété <span className="font-semibold text-slate-700">«&nbsp;Nom du type&nbsp;»</span> extraites de chaque maquette IFC
-          </p>
+          <p className="text-slate-500 text-sm mt-1">Mappage des types IFC et vérification des propriétés par catégorie</p>
         </div>
-        {anyLoading && (
-          <div className="flex items-center gap-2 text-blue-600 text-sm font-medium animate-pulse">
-            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        <div className="flex items-center gap-3">
+          {/* Sélecteur maquette */}
+          <select
+            value={selectedAuditId ?? ''}
+            onChange={e => setSelectedAuditId(Number(e.target.value))}
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            {audits.map(a => {
+              const { discipline } = parseMaquetteDetails(a.details);
+              return <option key={a.id} value={a.id}>{discipline ? `${discipline} — ` : ''}{a.project_name}</option>;
+            })}
+          </select>
+          <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            Lecture des fichiers IFC…
-          </div>
-        )}
+            Charger le fichier de mappage (Excel)
+          </button>
+        </div>
       </div>
 
+      {/* Titre maquette sélectionnée */}
+      {selectedAudit && (
+        <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
+          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+            <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+          </div>
+          <div>
+            <div className="font-bold text-slate-800">{selectedAudit.project_name}</div>
+            <div className="text-[11px] text-slate-400">
+              Dernière modification : {new Date(selectedAudit.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })} — {new Date(selectedAudit.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          </div>
+          <span className="ml-auto text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">✓ Chargé</span>
+        </div>
+      )}
+
+      {/* Section 1 — Mappage des Catégories */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100">
+          <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+          </svg>
+          <h3 className="text-base font-bold text-slate-800">Mappage des Catégories</h3>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b-2 border-slate-200">
-                <th className="text-left px-4 py-3 font-bold text-slate-400 uppercase tracking-wide w-8">#</th>
-                <th className="text-left px-4 py-3 font-bold text-slate-700 uppercase tracking-wide min-w-[220px]">
-                  Nom du type
-                </th>
-                {maquettes.map(m => {
-                  const { discipline } = parseMaquetteDetails(m.details);
-                  return (
-                    <th key={m.id} className="text-center px-4 py-3 font-bold text-slate-700 uppercase tracking-wide min-w-[140px]">
-                      <div className="text-[10px] font-bold text-blue-500 mb-0.5">{discipline || '—'}</div>
-                      <div className="truncate max-w-[160px] text-slate-600 normal-case font-semibold text-[11px]" title={m.project_name}>
-                        {m.project_name}
-                      </div>
-                    </th>
-                  );
-                })}
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Type d&apos;objet IFC</th>
+                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Catégorie client</th>
+                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Règle appliquée</th>
+                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation/Commentaires IA</th>
+                <th className="px-4 py-3 w-10"></th>
               </tr>
             </thead>
             <tbody>
-              {allTypeNames.length === 0 && !anyLoading ? (
-                <tr>
-                  <td colSpan={2 + maquettes.length} className="text-center py-10 text-slate-400 italic">
-                    Aucun «&nbsp;Nom du type&nbsp;» trouvé dans les maquettes chargées.
+              {mappingRows.map((row, idx) => (
+                <tr key={row.ifcType} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-blue-50/30 transition-colors`}>
+                  <td className="px-6 py-3">
+                    <span className="text-blue-600 font-mono text-sm font-semibold">{row.ifcType}</span>
+                  </td>
+                  <td className="px-6 py-3">
+                    {editingRow === idx ? (
+                      <input
+                        autoFocus
+                        className="border border-blue-400 rounded-lg px-2 py-1 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 w-44"
+                        value={row.category}
+                        onChange={e => setMappingRows(prev => prev.map((r, i) => i === idx ? { ...r, category: e.target.value } : r))}
+                        onBlur={() => setEditingRow(null)}
+                        onKeyDown={e => e.key === 'Enter' && setEditingRow(null)}
+                      />
+                    ) : (
+                      <span
+                        className="inline-block bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full cursor-pointer hover:bg-blue-200 transition-colors"
+                        onClick={() => setEditingRow(idx)}
+                      >
+                        {row.category || <span className="text-slate-400 italic">— cliquer pour définir</span>}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3">
+                    <select
+                      value={row.rule}
+                      onChange={e => setMappingRows(prev => prev.map((r, i) => i === idx ? { ...r, rule: e.target.value as MappingRule } : r))}
+                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    >
+                      <option>Auto-detect</option>
+                      <option>Manual Mapping</option>
+                      <option>Excluded</option>
+                    </select>
+                  </td>
+                  <td className="px-6 py-3">
+                    {row.aiStatus === 'Verified' && (
+                      <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-semibold">
+                        <CheckCircle className="h-3.5 w-3.5" /> Verified
+                      </span>
+                    )}
+                    {row.aiStatus === 'Incohérence Nommage' && (
+                      <span className="flex items-center gap-1.5 text-orange-500 text-xs font-semibold">
+                        <AlertCircle className="h-3.5 w-3.5" /> Incohérence Nommage
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => setMappingRows(prev => prev.filter((_, i) => i !== idx))}
+                      className="text-slate-300 hover:text-red-400 transition-colors"
+                      title="Supprimer"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </td>
                 </tr>
-              ) : (
-                allTypeNames.map((typeName, idx) => (
-                  <tr key={typeName} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                    <td className="px-4 py-2.5 text-slate-400 font-mono text-[10px] border-b border-slate-100">
-                      {idx + 1}
-                    </td>
-                    <td className="px-4 py-2.5 font-medium text-slate-800 border-b border-slate-100">
-                      {typeName}
-                    </td>
-                    {maquettes.map(m => {
-                      const names = typeNames[m.id];
-                      const isLoading = typeLoading[m.id];
-                      const err = typeError[m.id];
-                      const present = names?.includes(typeName);
-                      return (
-                        <td key={m.id} className="px-4 py-2.5 text-center border-b border-slate-100">
-                          {isLoading ? (
-                            <span className="inline-block w-4 h-4 rounded-full bg-slate-200 animate-pulse" />
-                          ) : err ? (
-                            <span className="text-red-400" title={err}>⚠</span>
-                          ) : present ? (
-                            <span className="inline-flex items-center justify-center w-5 h-5 bg-emerald-100 rounded-full">
-                              <svg className="w-3 h-3 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center justify-center w-5 h-5 bg-slate-100 rounded-full">
-                              <svg className="w-3 h-3 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-                              </svg>
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
-            {allTypeNames.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-50 border-t-2 border-slate-200">
-                  <td className="px-4 py-2.5 font-bold text-slate-500 text-[10px] uppercase tracking-wide" colSpan={2}>
-                    Total : {allTypeNames.length} type{allTypeNames.length > 1 ? 's' : ''}
-                  </td>
-                  {maquettes.map(m => {
-                    const count = typeNames[m.id]?.length ?? 0;
-                    return (
-                      <td key={m.id} className="px-4 py-2.5 text-center font-bold text-slate-600">
-                        {typeLoading[m.id] ? '…' : `${count} type${count > 1 ? 's' : ''}`}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tfoot>
-            )}
           </table>
+        </div>
+      </div>
+
+      {/* Section 2 — Vérification des Propriétés par Catégorie */}
+      <div>
+        <h3 className="text-xl font-bold text-slate-800 mb-4">Vérification des Propriétés par Catégorie</h3>
+        <div className="space-y-4">
+          {categories.map(cat => {
+            const props = categoryProps[cat] ?? [];
+            const ifcTypes = mappingRows.filter(r => r.category === cat && r.rule !== 'Excluded').map(r => r.ifcType);
+            if (ifcTypes.length === 0) return null;
+            // Simuler 2–4 objets par catégorie
+            const mockObjects = ifcTypes.slice(0, 3).map((t, i) => ({ id: `${t}_${382 + i}X4${i + 1}_A`, ifcType: t }));
+            const missingOnly = filterMissing[cat] ?? false;
+            const displayed = missingOnly
+              ? mockObjects.filter(obj => props.some(p => mockCellStatus(obj.ifcType, p) === 'Manquante'))
+              : mockObjects;
+            const totalCount = ifcTypes.length * 28; // simulé
+
+            return (
+              <div key={cat} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* Catégorie header */}
+                <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-1 h-6 bg-orange-500 rounded-full" />
+                    <span className="font-bold text-slate-800">{cat}</span>
+                    <span className="text-xs text-slate-400">{totalCount} objets détectés</span>
+                  </div>
+                  <button
+                    onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-50 border-orange-300 text-orange-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+                    </svg>
+                    Filtrer les manquants
+                  </button>
+                </div>
+                {/* Tableau propriétés */}
+                {props.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="text-left px-5 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[160px]">Object ID</th>
+                          {props.map(p => (
+                            <th key={p} className="text-left px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[120px]">{p}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayed.map((obj, oi) => (
+                          <tr key={obj.id} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                            <td className="px-5 py-2.5 font-mono text-slate-600 font-semibold">{obj.id}</td>
+                            {props.map(p => {
+                              const status = mockCellStatus(obj.ifcType, p);
+                              return (
+                                <td key={p} className="px-4 py-2.5">
+                                  {status === 'Remplie' ? (
+                                    <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                                      <CheckCircle className="h-3.5 w-3.5" /> Remplie
+                                    </span>
+                                  ) : (
+                                    <span className="flex items-center gap-1.5 text-red-500 font-semibold">
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <circle cx="12" cy="12" r="10" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 9l-6 6M9 9l6 6" />
+                                      </svg>
+                                      Manquante
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                        {displayed.length === 0 && (
+                          <tr><td colSpan={1 + props.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun objet avec des propriétés manquantes.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {/* Gestion des propriétés attendues */}
+                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés attendues :</span>
+                  {props.map(p => (
+                    <span key={p} className="inline-flex items-center gap-1 bg-white border border-slate-200 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-full">
+                      {p}
+                      <button
+                        onClick={() => setCategoryProps(prev => ({ ...prev, [cat]: (prev[cat] ?? []).filter(x => x !== p) }))}
+                        className="text-slate-300 hover:text-red-400 ml-0.5"
+                      >×</button>
+                    </span>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const name = prompt(`Nouvelle propriété pour "${cat}" :`);
+                      if (name?.trim()) setCategoryProps(prev => ({ ...prev, [cat]: [...(prev[cat] ?? []), name.trim()] }));
+                    }}
+                    className="text-[11px] text-blue-500 hover:text-blue-700 font-semibold border border-dashed border-blue-300 px-2 py-0.5 rounded-full hover:bg-blue-50 transition-colors"
+                  >
+                    + Ajouter
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
