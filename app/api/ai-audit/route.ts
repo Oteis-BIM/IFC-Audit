@@ -219,17 +219,27 @@ function extractIfcFacts(raw: string): IfcFacts {
     }
   }
 
-  // IFCBUILDINGSTOREY — niveaux (critère 5.x)
-  // args[2] = Name, args[9] = Elevation (en mètres dans IFC2x3/IFC4)
+  // IFCBUILDINGSTOREY — niveaux NGF (critère 5.x)
+  // args[2] = Name, args[9] = Elevation RELATIVE au projet (en mètres)
+  // Pour obtenir l'altitude NGF : élévation relative + offset Z global du projet
+  // L'offset Z est déjà calculé ci-dessus dans facts.siteCoords.z (en mm)
+  // ou facts.mapConversion.height (en mètres, à convertir)
+  const zOffsetMm: number =
+    facts.mapConversion?.height != null
+      ? Math.round(facts.mapConversion.height * 1000)
+      : (facts.siteCoords?.z ?? 0);
+
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCBUILDINGSTOREY(')) {
       const args = parseArgs(body);
       const name = stepStr(args[2] ?? '');
       const elevRaw = args[9] ?? '$';
-      const elevM = elevRaw === '$' ? null : parseFloat(elevRaw);
-      // Convertir en mm pour cohérence avec le reste du parser
-      const elevMm = elevM === null || isNaN(elevM) ? null : Math.round(elevM * 1000);
-      facts.storeys.push({ name, elevation: elevMm });
+      const elevRelM = elevRaw === '$' ? null : parseFloat(elevRaw);
+      // Elevation relative en mm + offset Z global = altitude NGF en mm
+      const elevNgfMm = elevRelM === null || isNaN(elevRelM)
+        ? null
+        : Math.round(elevRelM * 1000) + zOffsetMm;
+      facts.storeys.push({ name, elevation: elevNgfMm });
     }
   }
 
