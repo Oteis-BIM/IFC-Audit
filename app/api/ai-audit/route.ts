@@ -174,30 +174,50 @@ function extractIfcFacts(raw: string): IfcFacts {
   }
 
 
-  // IFCBUILDING - Name (critere 4.1)
+  // IFCBUILDING - Name (critere 4.1) + ref BuildingAddress (critere 4.2)
+  let buildingAddressRef: string | null = null;
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCBUILDING(')) {
       const args = parseArgs(body);
       facts.building = { name: stepStr(args[2] ?? '') };
+      // args[11] = BuildingAddress (ref vers IFCPOSTALADDRESS)
+      const ref = (args[11] ?? '').trim();
+      if (ref && ref !== '$') buildingAddressRef = ref;
       break;
     }
   }
 
-  // IFCPOSTALADDRESS - adresse du site (critere 4.2)
-  for (const [, body] of index) {
-    if (body.toUpperCase().startsWith('IFCPOSTALADDRESS(')) {
-      const args = parseArgs(body);
-      const addrLines = args[4];
-      const town     = stepStr(args[6] ?? '');
-      const zip      = stepStr(args[8] ?? '');
-      const country  = stepStr(args[9] ?? '');
-      const lineMatch = addrLines ? addrLines.match(/\(([^)]+)\)/) : null;
-      const streetParts = lineMatch ? lineMatch[1].split(',').map((s: string) => stepStr(s.trim())).filter(Boolean) : [];
-      const parts = [...streetParts, town, zip, country].filter(Boolean);
-      facts.siteAddress = parts.length > 0 ? parts.join(', ') : null;
-      break;
+  // Utilitaire : parse une entite IFCPOSTALADDRESS depuis son body
+  function parsePostalAddress(body: string): string | null {
+    const args = parseArgs(body);
+    const addrLines = args[4];
+    const town    = stepStr(args[6] ?? '');
+    const zip     = stepStr(args[8] ?? '');
+    const country = stepStr(args[9] ?? '');
+    const lineMatch = addrLines ? addrLines.match(/\(([^)]+)\)/) : null;
+    const streetParts = lineMatch ? lineMatch[1].split(',').map((s: string) => stepStr(s.trim())).filter(Boolean) : [];
+    const parts = [...streetParts, town, zip, country].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : null;
+  }
+
+  // IFCPOSTALADDRESS - critere 4.2
+  // Priorite 1 : reference directe depuis IFCBUILDING.BuildingAddress
+  if (buildingAddressRef && index.has(buildingAddressRef)) {
+    const addrBody = index.get(buildingAddressRef)!;
+    if (addrBody.toUpperCase().startsWith('IFCPOSTALADDRESS(')) {
+      facts.siteAddress = parsePostalAddress(addrBody);
     }
   }
+  // Priorite 2 : fallback sur la premiere IFCPOSTALADDRESS du fichier
+  if (!facts.siteAddress) {
+    for (const [, body] of index) {
+      if (body.toUpperCase().startsWith('IFCPOSTALADDRESS(')) {
+        facts.siteAddress = parsePostalAddress(body);
+        break;
+      }
+    }
+  }
+
   return facts;
 }
 
@@ -286,6 +306,10 @@ export async function POST(req: NextRequest) {
       `- Name (critere 3.1)        : ${facts.site ? (facts.site.name ? `"${facts.site.name}"` : '(vide)') : 'non trouve'}`,
       `- Description (critere 3.2) : ${facts.site ? (facts.site.description ? `"${facts.site.description}"` : '(vide)') : 'non trouve'}`,
       '',
+      '### IFCBUILDING :',
+      `- Name (critere 4.1)        : ${facts.building ? (facts.building.name ? `"${facts.building.name}"` : '(vide)') : 'non trouve'}`,
+      `- BuildingAddress (critere 4.2) : ${facts.siteAddress ? `"${facts.siteAddress}"` : '(vide)'}`,
+      '',
       '### Coordonnees georeferenceees IFCSITE :',
       coords
         ? [
@@ -315,7 +339,7 @@ Statuts possibles :
 Regles de comparaison :
 - Champs texte (Name, LongName, Description, Phase) : compare exactement la valeur extraite a la valeur attendue. Vide ou absent -> "error".
 - Coordonnees numeriques (en mm) : si l attendu est un nombre, compare numeriquement (ignorer les decimales si l entier est identique). Egal -> "ok", different -> "error".
-- Pour les criteres 2.x et 3.x : utilise UNIQUEMENT les faits extraits ci-dessus, jamais l extrait IFC brut.
+- Pour les criteres 2.x, 3.x et 4.x : utilise UNIQUEMENT les faits extraits ci-dessus, jamais l extrait IFC brut.
 - Toujours indiquer dans le commentaire : la valeur trouvee ET la valeur attendue.
 - IDs numeriques uniquement : "2.1", "3.3", jamais "B2.1" ou "C3.3".
 
