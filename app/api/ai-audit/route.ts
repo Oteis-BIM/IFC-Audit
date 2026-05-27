@@ -227,15 +227,21 @@ function extractIfcFacts(raw: string, projectNgfOffsetMm?: number): IfcFacts {
   // args[2] = Name, args[9] = Elevation RELATIVE au projet (en mètres)
   // NGF = élévation relative (mm) + offset NGF du projet (mm)
   // Priorité : RefElevation de IFCSITE > IFCMAPCONVERSION.height > 0
+  // Priorité NGF :
+  // 1. RefElevation IFC (IFCSITE.args[11]) — valeur NGF native dans le fichier
+  // 2. resolvedNgfOffsetMm — critère 3.5 saisi par l'utilisateur (NGF du niveau 0 relatif)
+  // 3. IFCMAPCONVERSION.height — si disponible et non nul
+  // 4. 0 (fallback)
+  // ⚠️ siteCoords.z n'est PAS utilisé : c'est un placement local Lambert93 dont Z=0 en pratique,
+  //    pas une altitude NGF.
+  const mapHeight = facts.mapConversion?.height != null ? Math.round(facts.mapConversion.height * 1000) : null;
   const zOffsetMm: number =
-    siteRefElevationMm !== null
+    siteRefElevationMm !== null && siteRefElevationMm !== 0
       ? siteRefElevationMm
-      : facts.mapConversion?.height != null
-      ? Math.round(facts.mapConversion.height * 1000)
-      : facts.siteCoords?.z != null
-      ? facts.siteCoords.z
       : projectNgfOffsetMm != null && !isNaN(projectNgfOffsetMm)
       ? projectNgfOffsetMm
+      : mapHeight !== null && mapHeight !== 0
+      ? mapHeight
       : 0;
 
   for (const [, body] of index) {
