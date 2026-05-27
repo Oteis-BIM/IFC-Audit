@@ -93,9 +93,10 @@ function extractIfcFacts(raw: string): IfcFacts {
         description: stepStr(args[3] ?? ''),
       };
       sitePlacementRef = args[5] ?? null;
-      // args[12] = RefElevation (NGF du projet en mètres)
-      const refElev = parseFloat(args[12] ?? '$');
+      // args[11] = RefElevation (NGF du projet en mètres, IFC2x3 et IFC4)
+      const refElev = parseFloat(args[11] ?? '$');
       if (!isNaN(refElev)) siteRefElevationMm = Math.round(refElev * 1000);
+      console.log('[NGF DEBUG] IFCSITE args[9..13]:', args.slice(9, 14), '| refElev parsed:', refElev, '| siteRefElevationMm:', siteRefElevationMm);
       break;
     }
   }
@@ -234,16 +235,18 @@ function extractIfcFacts(raw: string): IfcFacts {
       ? Math.round(facts.mapConversion.height * 1000)
       : 0;
 
+  console.log('[NGF DEBUG] siteRefElevationMm:', siteRefElevationMm, '| mapConversion.height:', facts.mapConversion?.height, '| zOffsetMm utilisé:', zOffsetMm);
+
   for (const [, body] of index) {
     if (body.toUpperCase().startsWith('IFCBUILDINGSTOREY(')) {
       const args = parseArgs(body);
       const name = stepStr(args[2] ?? '');
       const elevRaw = args[9] ?? '$';
       const elevRelM = elevRaw === '$' ? null : parseFloat(elevRaw);
-      // Élévation relative (mm) + offset NGF = altitude NGF (mm)
       const elevNgfMm = elevRelM === null || isNaN(elevRelM)
         ? null
         : Math.round(elevRelM * 1000) + zOffsetMm;
+      console.log(`[NGF DEBUG] Storey "${name}" : elevRel=${elevRelM}m → NGF=${elevNgfMm}mm`);
       facts.storeys.push({ name, elevation: elevNgfMm });
     }
   }
