@@ -164,9 +164,26 @@ function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: C
 // ─────────────────────────────────────────────
 // LLM VIEW — Interface de prompt libre vers GPT
 // ─────────────────────────────────────────────
-function LlmView() {
+function buildMaquettesContext(audits: Audit[]): string {
+  if (audits.length === 0) return 'Aucune maquette chargée dans l\'application.';
+  const lines = audits.map(a => {
+    const { discipline, downloadUrl } = parseMaquetteDetails(a.details);
+    const fileName = downloadUrl ? downloadUrl.split('/').pop()?.split('?')[0] ?? a.project_name : a.project_name;
+    return `- "${a.project_name}" | Discipline : ${discipline || 'non précisée'} | Fichier : ${fileName} | Statut : ${a.status} | Chargé le : ${new Date(a.created_at).toLocaleDateString('fr-FR')}`;
+  });
+  return `Maquettes IFC chargées dans l\'application (${audits.length}) :\n${lines.join('\n')}`;
+}
+
+function LlmView({ audits }: { audits: Audit[] }) {
+  const maquettesContext = buildMaquettesContext(audits);
+  const baseSystemPrompt = `Tu es un expert BIM et auditeur de maquettes IFC intégré à l'application ifc-audit.
+Tu peux UNIQUEMENT répondre à des questions concernant les maquettes IFC chargées dans cette application.
+Si la question ne concerne pas ces maquettes ou le domaine BIM/IFC, réponds : "Je ne peux répondre qu'aux questions relatives aux maquettes chargées dans cette application."
+Réponds en français de manière précise et structurée.
+
+${maquettesContext}`;
   const [prompt, setPrompt] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('Tu es un expert BIM et IFC. Réponds en français de manière précise et structurée.');
+  const [systemPrompt, setSystemPrompt] = useState(baseSystemPrompt);
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -174,6 +191,11 @@ function LlmView() {
   const [tokensUsed, setTokensUsed] = useState<number | null>(null);
   const [showSystem, setShowSystem] = useState(false);
   const responseRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSystemPrompt(baseSystemPrompt);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audits]);
 
   async function handleSend() {
     if (!prompt.trim()) return;
@@ -205,11 +227,30 @@ function LlmView() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div>
+      {/* Header */}      <div>
         <h2 className="text-3xl font-bold text-slate-900">LLM</h2>
-        <p className="text-slate-500 text-sm mt-1">Interface de dialogue direct avec le modèle de langage</p>
+        <p className="text-slate-500 text-sm mt-1">Interrogez l'IA sur les {audits.length > 0 ? `${audits.length} maquette${audits.length > 1 ? 's' : ''} chargée${audits.length > 1 ? 's' : ''}` : 'maquettes chargées'}</p>
       </div>
+
+      {/* Bandeau maquettes chargées */}
+      {audits.length === 0 ? (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 text-sm text-amber-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>Aucune maquette chargée — chargez d'abord une maquette IFC pour interroger l'IA.</span>
+        </div>
+      ) : (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 space-y-1">
+          <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-1">Contexte — {audits.length} maquette{audits.length > 1 ? 's' : ''} disponible{audits.length > 1 ? 's' : ''}</p>
+          {audits.map(a => {
+            const { discipline } = parseMaquetteDetails(a.details);
+            return (
+              <p key={a.id} className="text-xs text-blue-700 font-mono">
+                • {a.project_name}{discipline ? ` — ${discipline}` : ''} <span className="text-blue-400">({a.status})</span>
+              </p>
+            );
+          })}
+        </div>
+      )}
 
       {/* Paramètres modèle */}
       <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
@@ -268,7 +309,7 @@ function LlmView() {
           onKeyDown={handleKeyDown}
           rows={8}
           className="w-full text-sm text-slate-800 px-5 py-4 resize-y focus:outline-none font-mono leading-relaxed"
-          placeholder="Rédigez votre question ou instruction ici…&#10;&#10;Ex : Analyse ce fichier IFC et identifie les niveaux manquants.&#10;Ex : Génère un rapport de conformité pour la discipline Structure."
+          placeholder="Posez une question sur les maquettes chargées…&#10;&#10;Ex : Quels sont les niveaux de la maquette Structure ?&#10;Ex : La maquette Électricité contient-elle des BAES ?"
           disabled={loading}
         />
         <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50">
@@ -2392,9 +2433,8 @@ export default function Dashboard() {
               />
             </>          ) : activeTab === 'Rapports' ? (
             <RapportsView audits={audits} loading={loading} />          ) : activeTab === 'Paramètres' ? (
-            <ParametresView audits={audits} loading={loading} />
-          ) : activeTab === 'LLM' ? (
-            <LlmView />
+            <ParametresView audits={audits} loading={loading} />          ) : activeTab === 'LLM' ? (
+            <LlmView audits={audits} />
           ) : (
             <>
           <div className="flex justify-between items-end mb-8">
