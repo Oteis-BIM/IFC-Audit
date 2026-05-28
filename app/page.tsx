@@ -207,7 +207,15 @@ ${maquettesContext}`;
       const res = await fetch('/api/llm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim(), systemPrompt: systemPrompt.trim(), model }),
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          systemPrompt: systemPrompt.trim(),
+          model,
+          maquettes: audits.map(a => {
+            const { fileId, discipline } = parseMaquetteDetails(a.details);
+            return { fileId, fileName: a.project_name, discipline };
+          }).filter(m => m.fileId),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
