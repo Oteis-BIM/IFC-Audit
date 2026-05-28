@@ -188,9 +188,12 @@ ${maquettesContext}`;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [model, setModel] = useState('gpt-4o-mini');
-  const [tokensUsed, setTokensUsed] = useState<number | null>(null);
-  const [showSystem, setShowSystem] = useState(false);
+  const [tokensUsed, setTokensUsed] = useState<number | null>(null);  const [showSystem, setShowSystem] = useState(false);
   const responseRef = useRef<HTMLDivElement>(null);
+
+  // ── Mode Agent IFC (Python Function Calling, local uniquement) ──
+  const [agentMode, setAgentMode] = useState(false);
+  const [agentIfcPath, setAgentIfcPath] = useState('');
 
   useEffect(() => {
     setSystemPrompt(baseSystemPrompt);
@@ -204,23 +207,37 @@ ${maquettesContext}`;
     setResponse('');
     setTokensUsed(null);
     try {
-      const res = await fetch('/api/llm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          systemPrompt: systemPrompt.trim(),
-          model,
-          maquettes: audits.map(a => {
-            const { fileId, discipline } = parseMaquetteDetails(a.details);
-            return { fileId, fileName: a.project_name, discipline };
-          }).filter(m => m.fileId),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-      setResponse(data.content ?? '');
-      setTokensUsed(data.tokensUsed ?? null);
+      if (agentMode) {
+        // ── Agent IFC : délègue au script Python via /api/agent-ifc ──
+        if (!agentIfcPath.trim()) throw new Error('Chemin vers le fichier .ifc requis en mode Agent IFC.');
+        const res = await fetch('/api/agent-ifc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: prompt.trim(), ifcPath: agentIfcPath.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+        setResponse(data.response ?? '');
+      } else {
+        // ── Mode standard : contexte IFC extrait côté serveur ──
+        const res = await fetch('/api/llm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            systemPrompt: systemPrompt.trim(),
+            model,
+            maquettes: audits.map(a => {
+              const { fileId, discipline } = parseMaquetteDetails(a.details);
+              return { fileId, fileName: a.project_name, discipline };
+            }).filter(m => m.fileId),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+        setResponse(data.content ?? '');
+        setTokensUsed(data.tokensUsed ?? null);
+      }
       setTimeout(() => responseRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -258,24 +275,37 @@ ${maquettesContext}`;
             );
           })}
         </div>
-      )}
-
-      {/* Paramètres modèle */}
+      )}      {/* Paramètres modèle */}
       <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
         <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Modèle</span>
         <select
           value={model}
           onChange={e => setModel(e.target.value)}
-          className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          disabled={agentMode}
+          className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-40"
         >
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o</option>
           <option value="gpt-4-turbo">gpt-4-turbo</option>
           <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
         </select>
+
+        {/* Toggle Agent IFC */}
+        <button
+          onClick={() => setAgentMode(m => !m)}
+          title="Mode Agent IFC — Function Calling Python (local uniquement)"
+          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${agentMode ? 'bg-emerald-50 border-emerald-400 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.317 2.507l-2.694-.674m-8.692-1.12L5.9 18.714c-1.347.29-2.316-1.508-1.317-2.508L5 15.3" />
+          </svg>
+          Agent IFC {agentMode ? '✓' : ''}
+        </button>
+
         <button
           onClick={() => setShowSystem(s => !s)}
-          className={`ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${showSystem ? 'bg-purple-50 border-purple-300 text-purple-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
+          disabled={agentMode}
+          className={`ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40 ${showSystem ? 'bg-purple-50 border-purple-300 text-purple-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -283,10 +313,35 @@ ${maquettesContext}`;
           </svg>
           Prompt système
         </button>
-        {tokensUsed !== null && (
+        {tokensUsed !== null && !agentMode && (
           <span className="text-[11px] text-slate-400 font-mono">{tokensUsed} tokens</span>
         )}
       </div>
+
+      {/* Panneau Agent IFC */}
+      {agentMode && (
+        <div className="bg-emerald-50 border border-emerald-300 rounded-xl px-5 py-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-emerald-700 uppercase tracking-widest">🤖 Agent IFC — Function Calling (Python local)</span>
+            <span className="text-[10px] text-emerald-500 ml-auto">Route : /api/agent-ifc → scripts/agent_ifc.py</span>
+          </div>
+          <p className="text-[11px] text-emerald-600">
+            L'agent lit le fichier IFC localement, appelle OpenAI avec Function Calling pour vérifier les propriétés Pset en 2 passes.
+            <br />Exemples : <em>"La propriété GMAO_Marque est-elle renseignée pour les équipements ?"</em> · <em>"Taux de conformité INF_Protection ?"</em>
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-emerald-700">Chemin local vers le fichier .ifc</label>
+            <input
+              type="text"
+              value={agentIfcPath}
+              onChange={e => setAgentIfcPath(e.target.value)}
+              placeholder="Ex : C:\Projets\Elec.ifc  ou  scripts/test.ifc"
+              className="w-full text-sm font-mono border border-emerald-300 rounded-lg px-4 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder:text-slate-400"
+            />
+            <p className="text-[10px] text-emerald-500">Chemin absolu ou relatif depuis la racine du projet Next.js</p>
+          </div>
+        </div>
+      )}
 
       {/* Prompt système (optionnel) */}
       {showSystem && (
@@ -367,7 +422,7 @@ ${maquettesContext}`;
             <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.317 2.507l-2.694-.674m-8.692-1.12L5.9 18.714c-1.347.29-2.316-1.508-1.317-2.508L5 15.3" />
             </svg>
-            <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">Réponse — {model}</span>
+            <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">{agentMode ? '🤖 Agent IFC — Function Calling' : `Réponse — ${model}`}</span>
             <button
               onClick={() => navigator.clipboard.writeText(response)}
               className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors"
