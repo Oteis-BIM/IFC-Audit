@@ -162,6 +162,184 @@ function RapportCell({ status, onChange }: { status: CellStatus; onChange: (s: C
 }
 
 // ─────────────────────────────────────────────
+// LLM VIEW — Interface de prompt libre vers GPT
+// ─────────────────────────────────────────────
+function LlmView() {
+  const [prompt, setPrompt] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('Tu es un expert BIM et IFC. Réponds en français de manière précise et structurée.');
+  const [response, setResponse] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [model, setModel] = useState('gpt-4o-mini');
+  const [tokensUsed, setTokensUsed] = useState<number | null>(null);
+  const [showSystem, setShowSystem] = useState(false);
+  const responseRef = useRef<HTMLDivElement>(null);
+
+  async function handleSend() {
+    if (!prompt.trim()) return;
+    setLoading(true);
+    setError('');
+    setResponse('');
+    setTokensUsed(null);
+    try {
+      const res = await fetch('/api/llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompt.trim(), systemPrompt: systemPrompt.trim(), model }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      setResponse(data.content ?? '');
+      setTokensUsed(data.tokensUsed ?? null);
+      setTimeout(() => responseRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSend();
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-3xl font-bold text-slate-900">LLM</h2>
+        <p className="text-slate-500 text-sm mt-1">Interface de dialogue direct avec le modèle de langage</p>
+      </div>
+
+      {/* Paramètres modèle */}
+      <div className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Modèle</span>
+        <select
+          value={model}
+          onChange={e => setModel(e.target.value)}
+          className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o</option>
+          <option value="gpt-4-turbo">gpt-4-turbo</option>
+          <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+        </select>
+        <button
+          onClick={() => setShowSystem(s => !s)}
+          className={`ml-auto flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${showSystem ? 'bg-purple-50 border-purple-300 text-purple-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Prompt système
+        </button>
+        {tokensUsed !== null && (
+          <span className="text-[11px] text-slate-400 font-mono">{tokensUsed} tokens</span>
+        )}
+      </div>
+
+      {/* Prompt système (optionnel) */}
+      {showSystem && (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-2">
+          <label className="text-xs font-bold text-purple-600 uppercase tracking-widest">Prompt système</label>
+          <textarea
+            value={systemPrompt}
+            onChange={e => setSystemPrompt(e.target.value)}
+            rows={3}
+            className="w-full text-sm text-slate-700 bg-white border border-purple-200 rounded-lg px-4 py-3 resize-y focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+            placeholder="Instructions données à l'IA en contexte système…"
+          />
+        </div>
+      )}
+
+      {/* Zone de prompt */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-slate-50">
+          <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Votre prompt</span>
+          <span className="ml-auto text-[10px] text-slate-400">Ctrl+Entrée pour envoyer</span>
+        </div>
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={handleKeyDown}
+          rows={8}
+          className="w-full text-sm text-slate-800 px-5 py-4 resize-y focus:outline-none font-mono leading-relaxed"
+          placeholder="Rédigez votre question ou instruction ici…&#10;&#10;Ex : Analyse ce fichier IFC et identifie les niveaux manquants.&#10;Ex : Génère un rapport de conformité pour la discipline Structure."
+          disabled={loading}
+        />
+        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50">
+          <button
+            onClick={() => { setPrompt(''); setResponse(''); setError(''); setTokensUsed(null); }}
+            className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            disabled={loading}
+          >
+            Effacer
+          </button>
+          <button
+            onClick={handleSend}
+            disabled={loading || !prompt.trim()}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-sm font-bold px-6 py-2.5 rounded-lg transition-colors"
+          >
+            {loading ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+                Génération…
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                </svg>
+                Envoyer
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Erreur */}
+      {error && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Réponse IA */}
+      {response && (
+        <div ref={responseRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-slate-50">
+            <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.317 2.507l-2.694-.674m-8.692-1.12L5.9 18.714c-1.347.29-2.316-1.508-1.317-2.508L5 15.3" />
+            </svg>
+            <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">Réponse — {model}</span>
+            <button
+              onClick={() => navigator.clipboard.writeText(response)}
+              className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors"
+              title="Copier la réponse"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copier
+            </button>
+          </div>
+          <div className="px-5 py-5 text-sm text-slate-800 leading-relaxed whitespace-pre-wrap font-mono">
+            {response}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // PARAMÈTRES VIEW — Mappage catégories IFC + vérification propriétés
 // ─────────────────────────────────────────────
 
@@ -2129,7 +2307,7 @@ export default function Dashboard() {
              <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white text-[10px]">IFC</div>
              <span>IFC Quality Control</span>
           </div>          <nav className="flex space-x-6 text-sm font-medium text-slate-500">
-            {['Tableau de bord', 'Maquettes', 'Rapports', 'Conformité', 'Paramètres'].map(t => (
+            {['Tableau de bord', 'Maquettes', 'Rapports', 'Conformité', 'Paramètres', 'LLM'].map(t => (
               <span
                 key={t}
                 onClick={() => setActiveTab(t)}
@@ -2213,9 +2391,10 @@ export default function Dashboard() {
                 chapitresOnly
               />
             </>          ) : activeTab === 'Rapports' ? (
-            <RapportsView audits={audits} loading={loading} />
-          ) : activeTab === 'Paramètres' ? (
+            <RapportsView audits={audits} loading={loading} />          ) : activeTab === 'Paramètres' ? (
             <ParametresView audits={audits} loading={loading} />
+          ) : activeTab === 'LLM' ? (
+            <LlmView />
           ) : (
             <>
           <div className="flex justify-between items-end mb-8">
