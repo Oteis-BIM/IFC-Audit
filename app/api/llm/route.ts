@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import OpenAI from 'openai';
-import { extractIfcFacts, buildFactsBlock, extractIfcQuantities, buildQuantitiesBlock } from '@/lib/ifc-parser';
+import { extractIfcFacts, buildFactsBlock, extractIfcQuantities, buildQuantitiesBlock, extractIfcPsets, buildPsetsBlock } from '@/lib/ifc-parser';
 import { getSupabase } from '@/lib/supabase';
 
 async function refreshBoxToken(refreshToken: string) {
@@ -117,9 +117,13 @@ export async function POST(req: NextRequest) {
         if (!raw) return `### Maquette : "${m.fileName}" | Discipline : ${m.discipline}\n- (fichier inaccessible)`;        const facts = extractIfcFacts(raw);
         const factsBlock = buildFactsBlock(facts, m.fileName, m.discipline);
 
-        // Extraction des BaseQuantities directement depuis le fichier IFC (pas de script externe)
+        // Extraction des BaseQuantities (surfaces, volumes, longueurs)
         const quantitySummary = extractIfcQuantities(raw);
         const quantitiesBlock = buildQuantitiesBlock(quantitySummary);
+
+        // Extraction des Psets (propriétés des éléments — GMAO_Marque, FireRating, etc.)
+        const psetSummary = extractIfcPsets(raw);
+        const psetsBlock = buildPsetsBlock(psetSummary);
 
         // Données géométriques enrichies depuis Supabase si script Python exécuté (optionnel)
         const geoFromSupabase = await fetchGeometryFromSupabase(m.fileName);
@@ -127,7 +131,10 @@ export async function POST(req: NextRequest) {
           ? `\n- Données géométriques complémentaires (ifcopenshell) :\n${geoFromSupabase}`
           : '';
 
-        return factsBlock + `\n- Données géométriques IFC :\n${quantitiesBlock}` + geoBlock;
+        return factsBlock
+          + `\n\n- Données géométriques IFC :\n${quantitiesBlock}`
+          + `\n\n${psetsBlock}`
+          + geoBlock;
       })
     );
 

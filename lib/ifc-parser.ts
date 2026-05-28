@@ -561,3 +561,146 @@ export function buildFactsBlock(facts: IfcFacts, fileName: string, discipline: s
       : `- Niveaux                : aucun trouvé`,
   ].join('\n');
 }
+
+// ─── Extraction des Property Sets (Psets) par type IFC ───────────────────────
+
+export interface IfcPsetSummary {
+  byType: Record<string, Record<string, {
+    presents: number;
+    absents: number;
+    total: number;
+    exempleValeur: string;
+    exemplesManquants: string[];
+  }>>;
+  countByType: Record<string, number>;
+}
+
+const PSET_TARGET_TYPES = [
+  'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCCOLUMN', 'IFCBEAM',
+  'IFCDOOR', 'IFCWINDOW', 'IFCSTAIR', 'IFCROOF', 'IFCFOOTING', 'IFCPILE',
+  'IFCSPACE', 'IFCLIGHTFIXTURE', 'IFCFLOWTERMINAL', 'IFCFLOWSEGMENT',
+  'IFCDISTRIBUTIONFLOWELEMENT', 'IFCELECTRICDISTRIBUTIONBOARD',
+  'IFCCOVERING', 'IFCFURNISHINGELEMENT', 'IFCOUTLET', 'IFCSENSOR',
+  'IFCFLOWCONTROLLER', 'IFCENERGYCONVERSIONDEVICE', 'IFCPIPEFITTING',
+  'IFCPIPESEGMENT', 'IFCDUCTSEGMENT', 'IFCDUCTFITTING', 'IFCMEMBER', 'IFCPLATE',
+];
+
+export function extractIfcPsets(raw: string): IfcPsetSummary {
+  const index = buildEntityIndex(raw);
+
+  const elementMap = new Map<string, { ifcType: string; name: string }>();
+  for (const [ref, body] of index) {
+    const upper = body.toUpperCase();
+    for (const t of PSET_TARGET_TYPES) {
+      if (upper.startsWith(t + '(')) {
+        const args = parseArgs(body);
+        elementMap.set(ref, {
+          ifcType: body.substring(0, body.indexOf('(')),
+          name: stepStr(args[2] ?? '') || ref,
+        });
+        break;
+      }
+    }
+  }
+
+  const elementPsetRefs = new Map<string, string[]>();
+  for (const [, body] of index) {
+    if (!body.toUpperCase().startsWith('IFCRELDEFINESBYPROPERTIES(')) continue;
+    const args = parseArgs(body);
+    const relatedStr = args[4] ?? '';
+    const defRef = (args[5] ?? '').trim();
+    if (!defRef || defRef === '$') continue;
+    for (const r of (relatedStr.match(/#\d+/g) ?? [])) {
+      if (!elementPsetRefs.has(r)) elementPsetRefs.set(r, []);
+      elementPsetRefs.get(r)!.push(defRef);
+    }
+  }
+
+  const psetCache = new Map<string, Record<string, string>>();
+  for (const [ref, body] of index) {
+    if (!body.toUpperCase().startsWith('IFCPROPERTYSET(')) continue;
+    const args = parseArgs(body);
+    const propRefs = (args[4] ?? '').match(/#\d+/g) ?? [];
+    const props: Record<string, string> = {};
+    for (const pRef of propRefs) {
+      const pBody = index.get(pRef);
+      if (!pBody || !pBody.toUpperCase().startsWith('IFCPROPERTYSINGLEVALUE(')) continue;
+      const pArgs = parseArgs(pBody);
+      const propName = stepStr(pArgs[0] ?? '');
+      const rawVal = pArgs[2] ?? '$';
+      const m = rawVal.match(/IFC\w+\('(.+?)'\)|IFC\w+\(\.(.+?)\.\)|IFC\w+\((.+?)\)|'(.+?)'/i);
+      const val = m ? (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '') : stepStr(rawVal);
+      if (propName) props[propName] = val;
+    }
+    if (Object.keys(props).length > 0) psetCache.set(ref, props);
+  }
+
+  const countByType: Record<string, number> = {};
+  const accumProps: Record<string, Record<string, { vals: string[] }>> = {};
+  const elementPropsMap = new Map<string, Set<string>>();
+
+  for (const [ref, elInfo] of elementMap) {
+    const { ifcType, name } = elInfo;
+    countByType[ifcType] = (countByType[ifcType] ?? 0) + 1;
+    const allProps: Record<string, string> = {};
+    for (const pRef of (elementPsetRefs.get(ref) ?? [])) {
+      const cached = psetCache.get(pRef);
+      if (cached) Object.assign(allProps, cached);
+    }
+    const filledProps = new Set<string>();
+    if (!accumProps[ifcType]) accumProps[ifcType] = {};
+    for (const [prop, val] of Object.entries(allProps)) {
+      if (val !== '' && val !== '$') {
+        filledProps.add(prop);
+        if (!accumProps[ifcType][prop]) accumProps[ifcType][prop] = { vals: [] };
+        accumProps[ifcType][prop].vals.push(val);
+      }
+    }
+    elementPropsMap.set(ref, filledProps);
+  }
+
+  const byType: IfcPsetSummary['byType'] = {};
+  for (const [type, props] of Object.entries(accumProps)) {
+    byType[type] = {};
+    const total = countByType[type] ?? 0;
+    for (const [prop, data] of Object.entries(props)) {
+      const presents = data.vals.length;
+      const absents = total - presents;
+      const exemplesManquants: string[] = [];
+      for (const [eRef, ePropSet] of elementPropsMap) {
+        if (elementMap.get(eRef)?.ifcType === type && !ePropSet.has(prop) && exemplesManquants.length < 5) {
+          exemplesManquants.push(elementMap.get(eRef)?.name ?? eRef);
+        }
+      }
+      byType[type][prop] = {
+        presents, absents, total,
+        exempleValeur: data.vals[0] ?? '',
+        exemplesManquants,
+      };
+    }
+  }
+
+  return { byType, countByType };
+}
+
+export function buildPsetsBlock(summary: IfcPsetSummary): string {
+  const types = Object.keys(summary.byType);
+  if (types.length === 0) return '- Aucune propriete Pset trouvee dans ce fichier IFC.';
+  const lines: string[] = ['- PROPRIETES (Psets) PAR TYPE IFC :'];
+  for (const type of types) {
+    const total = summary.countByType[type] ?? 0;
+    const props = summary.byType[type];
+    lines.push(`    ${type} (${total} elements, ${Object.keys(props).length} proprietes) :`);
+    for (const [prop, stat] of Object.entries(props)) {
+      const taux = total > 0 ? Math.round((stat.presents / total) * 100) : 0;
+      const conformite = taux === 100 ? 'OK' : taux === 0 ? 'ABSENT' : taux + '%';
+      let line = `      - ${prop} : ${stat.presents}/${total} (${conformite})`;
+      if (stat.exempleValeur) line += ` ex:"${stat.exempleValeur}"`;
+      if (stat.absents > 0 && stat.exemplesManquants.length > 0) {
+        line += ` manquants: ${stat.exemplesManquants.slice(0, 3).join(', ')}${stat.absents > 3 ? ' (+' + (stat.absents - 3) + ')' : ''}`;
+      }
+      lines.push(line);
+    }
+  }
+  return lines.join('\n');
+}
