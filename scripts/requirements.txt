@@ -1,0 +1,3 @@
+﻿ifcopenshell
+supabase
+python-dotenv
