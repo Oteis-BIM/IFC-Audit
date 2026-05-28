@@ -249,6 +249,232 @@ export function countIfcType(raw: string, ifcType: string): number {
   return count;
 }
 
+// ─── Types pour les quantités géométriques ───────────────────────────────────
+export interface IfcQuantityEntry {
+  globalId: string;
+  ifcType: string;
+  name: string;
+  level: string | null;
+  quantities: Record<string, number>; // ex: { "NetVolume": 0.42, "GrossArea": 3.5 }
+}
+
+export interface IfcQuantitySummary {
+  totalElements: number;
+  elementsWithQuantities: number;
+  countByType: Record<string, number>;
+  aggregatesByType: Record<string, Record<string, { total: number; avg: number; count: number; unit: string }>>;
+  elements: IfcQuantityEntry[];
+}
+
+// Noms de quantités et unités associées (IFC standard BaseQuantities)
+const QUANTITY_UNITS: Record<string, string> = {
+  length: 'mm', width: 'mm', height: 'mm', depth: 'mm', perimeter: 'mm',
+  grosssidearea: 'm²', netsidearea: 'm²', grossfloorarea: 'm²', netfloorarea: 'm²',
+  grosscrosssectionarea: 'm²', netcrosssectionarea: 'm²', outersurfacearea: 'm²',
+  grosssurface: 'm²', netsurface: 'm²', grossvolume: 'm³', netvolume: 'm³',
+  grossweight: 'kg', netweight: 'kg', count: 'u',
+};
+
+function getQuantityUnit(propName: string): string {
+  return QUANTITY_UNITS[propName.toLowerCase()] ?? '';
+}
+
+const QUANTITY_IFC_TYPES = [
+  'IfcQuantityLength', 'IfcQuantityArea', 'IfcQuantityVolume',
+  'IfcQuantityWeight', 'IfcQuantityCount', 'IfcQuantityTime',
+];
+
+const TARGET_IFC_TYPES = [
+  'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCCOLUMN', 'IFCBEAM',
+  'IFCDOOR', 'IFCWINDOW', 'IFCSTAIR', 'IFCROOF', 'IFCFOOTING', 'IFCPILE',
+  'IFCSPACE', 'IFCLIGHTFIXTURE', 'IFCFLOWTERMINAL', 'IFCFLOWSEGMENT',
+  'IFCDISTRIBUTIONFLOWELEMENT', 'IFCCOVERING', 'IFCFURNISHINGELEMENT',
+];
+
+/**
+ * Extrait les BaseQuantities (IFCELEMENTQUANTITY) depuis le fichier IFC brut.
+ * Retourne un résumé agrégé par type IFC, directement utilisable par le LLM.
+ */
+export function extractIfcQuantities(raw: string): IfcQuantitySummary {
+  const index = buildEntityIndex(raw);
+
+  // 1. Mapper chaque entité cible : globalId → { ifcType, name, ref }
+  const elementMap = new Map<string, { ifcType: string; name: string; ref: string }>();
+  for (const [ref, body] of index) {
+    const upper = body.toUpperCase();
+    for (const t of TARGET_IFC_TYPES) {
+      if (upper.startsWith(t + '(')) {
+        const args = parseArgs(body);
+        elementMap.set(ref, {
+          ifcType: body.substring(0, body.indexOf('(')),
+          name: stepStr(args[2] ?? ''),
+          ref,
+        });
+        break;
+      }
+    }
+  }
+
+  // 2. Mapper chaque IFCRELDEFINESBYPROPERTIES → quels éléments → quels psets/qtos
+  //    Structure : relatedObjects (liste de refs) → relatingPropertyDefinition (ref vers IFCELEMENTQUANTITY)
+  const elementQtoRefs = new Map<string, string[]>(); // elementRef → [qtoRef, ...]
+  for (const [, body] of index) {
+    const upper = body.toUpperCase();
+    if (!upper.startsWith('IFCRELDEFINESBYPROPERTIES(')) continue;
+    const args = parseArgs(body);
+    // args[4] = RelatedObjects (liste), args[5] = RelatingPropertyDefinition
+    const relatedStr = args[4] ?? '';
+    const defRef = (args[5] ?? '').trim();
+    if (!defRef || defRef === '$') continue;
+    // Extraire les refs de la liste (#123,#456,...)
+    const refs = relatedStr.match(/#\d+/g) ?? [];
+    for (const r of refs) {
+      if (!elementQtoRefs.has(r)) elementQtoRefs.set(r, []);
+      elementQtoRefs.get(r)!.push(defRef);
+    }
+  }
+
+  // 3. Pour chaque IFCELEMENTQUANTITY, parser les quantités numériques
+  const qtoCache = new Map<string, Record<string, number>>();
+  for (const [ref, body] of index) {
+    const upper = body.toUpperCase();
+    if (!upper.startsWith('IFCELEMENTQUANTITY(')) continue;
+    const args = parseArgs(body);
+    // args[5] = liste de refs vers IFCQUANTITY*
+    const quantityListStr = args[5] ?? '';
+    const qRefs = quantityListStr.match(/#\d+/g) ?? [];
+    const quantities: Record<string, number> = {};
+    for (const qRef of qRefs) {
+      const qBody = index.get(qRef);
+      if (!qBody) continue;
+      const qUpper = qBody.toUpperCase();
+      const isQuantity = QUANTITY_IFC_TYPES.some(t => qUpper.startsWith(t.toUpperCase() + '('));
+      if (!isQuantity) continue;
+      const qArgs = parseArgs(qBody);
+      const propName = stepStr(qArgs[0] ?? '');
+      // La valeur numérique est en args[3] (IFC2x3) ou args[2] selon le type
+      const rawVal = qArgs[3] ?? qArgs[2] ?? '$';
+      const val = parseFloat(rawVal);
+      if (propName && !isNaN(val)) {
+        quantities[propName] = val;
+      }
+    }
+    if (Object.keys(quantities).length > 0) qtoCache.set(ref, quantities);
+  }
+
+  // 4. Associer quantités aux éléments + récupérer le niveau de rattachement
+  // Mapper IFCRELCONTAINEDINSPATIALSTRUCTURE : ref élément → nom niveau
+  const levelMap = new Map<string, string>();
+  for (const [, body] of index) {
+    const upper = body.toUpperCase();
+    if (!upper.startsWith('IFCRELCONTAINEDINSPATIALSTRUCTURE(')) continue;
+    const args = parseArgs(body);
+    const relatingRef = (args[5] ?? '').trim();
+    const relatedStr = args[4] ?? '';
+    const levelBody = relatingRef ? index.get(relatingRef) : undefined;
+    if (!levelBody) continue;
+    const levelArgs = parseArgs(levelBody);
+    const levelName = stepStr(levelArgs[2] ?? '');
+    const refs = relatedStr.match(/#\d+/g) ?? [];
+    for (const r of refs) levelMap.set(r, levelName);
+  }
+
+  // 5. Construire le résultat
+  const entries: IfcQuantityEntry[] = [];
+  const countByType: Record<string, number> = {};
+  const aggregatesByType: Record<string, Record<string, { total: number; avg: number; count: number; unit: string }>> = {};
+  const aggAccum: Record<string, Record<string, number[]>> = {};
+
+  for (const [ref, elInfo] of elementMap) {
+    const ifcType = elInfo.ifcType;
+    countByType[ifcType] = (countByType[ifcType] ?? 0) + 1;
+
+    const qtoRefs = elementQtoRefs.get(ref) ?? [];
+    const allQuantities: Record<string, number> = {};
+    for (const qRef of qtoRefs) {
+      const qts = qtoCache.get(qRef);
+      if (qts) Object.assign(allQuantities, qts);
+    }
+
+    const entry: IfcQuantityEntry = {
+      globalId: '',
+      ifcType,
+      name: elInfo.name,
+      level: levelMap.get(ref) ?? null,
+      quantities: allQuantities,
+    };
+
+    // Récupérer le GlobalId
+    const elBody = index.get(ref);
+    if (elBody) {
+      const elArgs = parseArgs(elBody);
+      entry.globalId = stepStr(elArgs[0] ?? '');
+    }
+
+    entries.push(entry);
+
+    // Agréger par type
+    if (Object.keys(allQuantities).length > 0) {
+      if (!aggAccum[ifcType]) aggAccum[ifcType] = {};
+      for (const [prop, val] of Object.entries(allQuantities)) {
+        if (!aggAccum[ifcType][prop]) aggAccum[ifcType][prop] = [];
+        aggAccum[ifcType][prop].push(val);
+      }
+    }
+  }
+
+  // Calculer total/avg/count
+  for (const [type, props] of Object.entries(aggAccum)) {
+    aggregatesByType[type] = {};
+    for (const [prop, vals] of Object.entries(props)) {
+      const total = vals.reduce((a, b) => a + b, 0);
+      aggregatesByType[type][prop] = {
+        total: Math.round(total * 1000) / 1000,
+        avg: Math.round((total / vals.length) * 1000) / 1000,
+        count: vals.length,
+        unit: getQuantityUnit(prop),
+      };
+    }
+  }
+
+  return {
+    totalElements: elementMap.size,
+    elementsWithQuantities: entries.filter(e => Object.keys(e.quantities).length > 0).length,
+    countByType,
+    aggregatesByType,
+    elements: entries,
+  };
+}
+
+/** Formate le résumé des quantités en texte lisible pour le LLM */
+export function buildQuantitiesBlock(summary: IfcQuantitySummary): string {
+  if (summary.totalElements === 0) return '- Aucun élément IFC trouvé.';
+
+  const lines: string[] = [];
+  lines.push(`- Éléments analysés : ${summary.totalElements} (${summary.elementsWithQuantities} avec quantités géométriques)`);
+
+  lines.push('- Comptage par type :');
+  for (const [type, count] of Object.entries(summary.countByType).sort((a, b) => b[1] - a[1])) {
+    lines.push(`    • ${type} : ${count}`);
+  }
+
+  if (Object.keys(summary.aggregatesByType).length > 0) {
+    lines.push('- Agrégats géométriques (BaseQuantities) :');
+    for (const [type, props] of Object.entries(summary.aggregatesByType)) {
+      lines.push(`    ${type} :`);
+      for (const [prop, agg] of Object.entries(props)) {
+        const unit = agg.unit ? ` ${agg.unit}` : '';
+        lines.push(`      • ${prop} — total: ${agg.total}${unit}, moy: ${agg.avg}${unit}, nb: ${agg.count}`);
+      }
+    }
+  } else {
+    lines.push('- Quantités géométriques : non renseignées dans ce fichier IFC (BaseQuantities absentes).');
+    lines.push('  Pour enrichir les données, exécutez : python scripts/extract_ifc_geometry.py --ifc <fichier.ifc>');
+  }
+
+  return lines.join('\n');
+}
+
 /** Construit un bloc de faits lisible pour le LLM à partir des facts parsés */
 export function buildFactsBlock(facts: IfcFacts, fileName: string, discipline: string): string {
   const coords = facts.mapConversion

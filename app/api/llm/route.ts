@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import OpenAI from 'openai';
-import { extractIfcFacts, buildFactsBlock, countIfcType } from '@/lib/ifc-parser';
+import { extractIfcFacts, buildFactsBlock, extractIfcQuantities, buildQuantitiesBlock } from '@/lib/ifc-parser';
 import { getSupabase } from '@/lib/supabase';
 
 async function refreshBoxToken(refreshToken: string) {
@@ -82,14 +82,6 @@ async function fetchGeometryFromSupabase(fileName: string): Promise<string | nul
   }
 }
 
-const COUNTED_TYPES = [
-  'IfcLightFixture','IfcFlowTerminal','IfcOutlet','IfcSensor',
-  'IfcWall','IfcWallStandardCase','IfcColumn','IfcBeam','IfcSlab',
-  'IfcDoor','IfcWindow','IfcStair','IfcRoof','IfcPile','IfcFooting',
-  'IfcFlowSegment','IfcDistributionFlowElement','IfcElectricDistributionBoard',
-  'IfcSpace','IfcOpeningElement','IfcCovering','IfcFurnishingElement',
-];
-
 export async function POST(req: NextRequest) {
   try {
     const { prompt, systemPrompt: userSystemPrompt, model, maquettes } = await req.json();
@@ -124,19 +116,18 @@ export async function POST(req: NextRequest) {
         const raw = await fetchIfcRaw(m.fileId, accessToken);
         if (!raw) return `### Maquette : "${m.fileName}" | Discipline : ${m.discipline}\n- (fichier inaccessible)`;        const facts = extractIfcFacts(raw);
         const factsBlock = buildFactsBlock(facts, m.fileName, m.discipline);
-        const counts = COUNTED_TYPES
-          .map(t => ({ type: t, count: countIfcType(raw, t) }))
-          .filter(c => c.count > 0)
-          .map(c => `    • ${c.type} : ${c.count}`)
-          .join('\n');
 
-        // Données géométriques enrichies depuis Supabase (script Python ifcopenshell)
+        // Extraction des BaseQuantities directement depuis le fichier IFC (pas de script externe)
+        const quantitySummary = extractIfcQuantities(raw);
+        const quantitiesBlock = buildQuantitiesBlock(quantitySummary);
+
+        // Données géométriques enrichies depuis Supabase si script Python exécuté (optionnel)
         const geoFromSupabase = await fetchGeometryFromSupabase(m.fileName);
         const geoBlock = geoFromSupabase
-          ? `\n- Données géométriques détaillées (ifcopenshell) :\n${geoFromSupabase}`
-          : '\n- Données géométriques détaillées : non disponibles (script Python non exécuté)';
+          ? `\n- Données géométriques complémentaires (ifcopenshell) :\n${geoFromSupabase}`
+          : '';
 
-        return factsBlock + (counts ? `\n- Objets IFC comptés :\n${counts}` : '') + geoBlock;
+        return factsBlock + `\n- Données géométriques IFC :\n${quantitiesBlock}` + geoBlock;
       })
     );
 
