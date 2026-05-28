@@ -258,11 +258,21 @@ export interface IfcQuantityEntry {
   quantities: Record<string, number>; // ex: { "NetVolume": 0.42, "GrossArea": 3.5 }
 }
 
+export interface IfcQuantityAgg {
+  total: number;
+  avg: number;
+  count: number;
+  unit: string;
+}
+
 export interface IfcQuantitySummary {
   totalElements: number;
   elementsWithQuantities: number;
   countByType: Record<string, number>;
-  aggregatesByType: Record<string, Record<string, { total: number; avg: number; count: number; unit: string }>>;
+  /** Agrégats globaux : type → prop → agg */
+  aggregatesByType: Record<string, Record<string, IfcQuantityAgg>>;
+  /** Agrégats par niveau : type → niveau → prop → agg */
+  aggregatesByTypeAndLevel: Record<string, Record<string, Record<string, IfcQuantityAgg>>>;
   elements: IfcQuantityEntry[];
 }
 
@@ -422,8 +432,7 @@ export function extractIfcQuantities(raw: string): IfcQuantitySummary {
       }
     }
   }
-
-  // Calculer total/avg/count
+  // Calculer total/avg/count globaux + par niveau
   for (const [type, props] of Object.entries(aggAccum)) {
     aggregatesByType[type] = {};
     for (const [prop, vals] of Object.entries(props)) {
@@ -437,11 +446,41 @@ export function extractIfcQuantities(raw: string): IfcQuantitySummary {
     }
   }
 
+  // Agrégats par niveau (type → niveau → prop → agg)
+  const aggByLevel: Record<string, Record<string, Record<string, number[]>>> = {};
+  for (const entry of entries) {
+    if (Object.keys(entry.quantities).length === 0) continue;
+    const niveau = entry.level ?? '(niveau inconnu)';
+    if (!aggByLevel[entry.ifcType]) aggByLevel[entry.ifcType] = {};
+    if (!aggByLevel[entry.ifcType][niveau]) aggByLevel[entry.ifcType][niveau] = {};
+    for (const [prop, val] of Object.entries(entry.quantities)) {
+      if (!aggByLevel[entry.ifcType][niveau][prop]) aggByLevel[entry.ifcType][niveau][prop] = [];
+      aggByLevel[entry.ifcType][niveau][prop].push(val);
+    }
+  }
+  const aggregatesByTypeAndLevel: Record<string, Record<string, Record<string, IfcQuantityAgg>>> = {};
+  for (const [type, niveaux] of Object.entries(aggByLevel)) {
+    aggregatesByTypeAndLevel[type] = {};
+    for (const [niveau, props] of Object.entries(niveaux)) {
+      aggregatesByTypeAndLevel[type][niveau] = {};
+      for (const [prop, vals] of Object.entries(props)) {
+        const total = vals.reduce((a, b) => a + b, 0);
+        aggregatesByTypeAndLevel[type][niveau][prop] = {
+          total: Math.round(total * 1000) / 1000,
+          avg: Math.round((total / vals.length) * 1000) / 1000,
+          count: vals.length,
+          unit: getQuantityUnit(prop),
+        };
+      }
+    }
+  }
+
   return {
     totalElements: elementMap.size,
     elementsWithQuantities: entries.filter(e => Object.keys(e.quantities).length > 0).length,
     countByType,
     aggregatesByType,
+    aggregatesByTypeAndLevel,
     elements: entries,
   };
 }
@@ -458,18 +497,40 @@ export function buildQuantitiesBlock(summary: IfcQuantitySummary): string {
     lines.push(`    • ${type} : ${count}`);
   }
 
-  if (Object.keys(summary.aggregatesByType).length > 0) {
-    lines.push('- Agrégats géométriques (BaseQuantities) :');
-    for (const [type, props] of Object.entries(summary.aggregatesByType)) {
+  const hasAgg = Object.keys(summary.aggregatesByType).length > 0;
+  const hasByLevel = Object.keys(summary.aggregatesByTypeAndLevel ?? {}).length > 0;
+
+  if (!hasAgg) {
+    lines.push('- Quantités géométriques : non renseignées dans ce fichier IFC (BaseQuantities absentes).');
+    lines.push('  → Astuce : exécutez scripts/extract_ifc_quantities.py pour enrichir les données.');
+    return lines.join('\n');
+  }
+
+  // Totaux globaux (toutes niveaux confondus)
+  lines.push('');
+  lines.push('- TOTAUX GLOBAUX par type (BaseQuantities, toutes niveaux) :');
+  for (const [type, props] of Object.entries(summary.aggregatesByType)) {
+    lines.push(`    ${type} (${summary.countByType[type] ?? 0} éléments) :`);
+    for (const [prop, agg] of Object.entries(props)) {
+      const unit = agg.unit ? ` ${agg.unit}` : '';
+      lines.push(`      • ${prop} — total: ${agg.total}${unit}, moy/élément: ${agg.avg}${unit}, nb: ${agg.count}`);
+    }
+  }
+
+  // Détail par niveau
+  if (hasByLevel) {
+    lines.push('');
+    lines.push('- QUANTITÉS PAR NIVEAU (BaseQuantities) :');
+    for (const [type, niveaux] of Object.entries(summary.aggregatesByTypeAndLevel)) {
       lines.push(`    ${type} :`);
-      for (const [prop, agg] of Object.entries(props)) {
-        const unit = agg.unit ? ` ${agg.unit}` : '';
-        lines.push(`      • ${prop} — total: ${agg.total}${unit}, moy: ${agg.avg}${unit}, nb: ${agg.count}`);
+      for (const [niveau, props] of Object.entries(niveaux)) {
+        lines.push(`      Niveau "${niveau}" :`);
+        for (const [prop, agg] of Object.entries(props)) {
+          const unit = agg.unit ? ` ${agg.unit}` : '';
+          lines.push(`        • ${prop} — total: ${agg.total}${unit}, nb: ${agg.count}`);
+        }
       }
     }
-  } else {
-    lines.push('- Quantités géométriques : non renseignées dans ce fichier IFC (BaseQuantities absentes).');
-    lines.push('  Pour enrichir les données, exécutez : python scripts/extract_ifc_geometry.py --ifc <fichier.ifc>');
   }
 
   return lines.join('\n');
