@@ -225,8 +225,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Execution de l agent avec la question fournie
-    poser_question_au_batiment(
+
+    reponse = poser_question_au_batiment(
         question_utilisateur=args.question,
         chemin_ifc=args.ifc,
     )
+    
+    # Écrit la réponse finale brute à la toute fin pour que Node.js puisse la capturer
+    sys.stdout.write(f"\nRESULTAT_FINAL:{reponse}")
