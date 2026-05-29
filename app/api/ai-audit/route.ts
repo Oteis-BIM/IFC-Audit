@@ -330,9 +330,9 @@ export async function POST(req: NextRequest) {
 
     const coords = facts.mapConversion
       ? {
-          x: facts.mapConversion.easting,
-          y: facts.mapConversion.northing,
-          z: facts.mapConversion.height,
+          x: facts.mapConversion.easting != null ? Math.round(facts.mapConversion.easting * 1000) : null,
+          y: facts.mapConversion.northing != null ? Math.round(facts.mapConversion.northing * 1000) : null,
+          z: facts.mapConversion.height   != null ? Math.round(facts.mapConversion.height   * 1000) : null,
           src: 'IFCMAPCONVERSION',
         }
       : facts.siteCoords
@@ -432,13 +432,46 @@ Retourne le JSON de conformite pour : ${criteriaIds}.`;
       response_format: { type: 'json_object' },
     });
 
-    const content = completion.choices[0]?.message?.content ?? '{}';
-    let results: Record<string, { status: string; comment: string }>;
+    const content = completion.choices[0]?.message?.content ?? '{}';    let results: Record<string, { status: string; comment: string }>;
     try {
       results = JSON.parse(content);
     } catch {
       return NextResponse.json({ error: 'Reponse IA invalide', raw: content }, { status: 500 });
     }
+
+    // ── Post-traitement serveur : correction forcée des critères numériques ──
+    // Le LLM peut se tromper sur les comparaisons numériques (ex. 55740 ≠ 55000).
+    // On recalcule ici côté serveur pour les critères 3.3, 3.4, 3.5.
+    const numericOverrides: Array<{ id: string; extracted: number | null; label: string }> = [
+      { id: '3.3', extracted: coords?.x ?? null, label: 'Global Y / Nord-Sud' },
+      { id: '3.4', extracted: coords?.y ?? null, label: 'Global X / Est-Ouest' },
+      { id: '3.5', extracted: coords?.z ?? null, label: 'Global Z / Elevation' },
+    ];
+
+    for (const { id, extracted, label } of numericOverrides) {
+      const crit = criteriaList.find(c => c.id === id);
+      if (!crit) continue;
+      const expectedMm = parseFloat(crit.expected);
+      if (isNaN(expectedMm)) continue; // attendu non numérique → laisser le LLM décider
+
+      if (extracted === null) {
+        results[id] = {
+          status: 'error',
+          comment: `${label} : valeur non trouvee dans le fichier IFC. Attendu : ${expectedMm} mm.`,
+        };
+      } else if (extracted === expectedMm) {
+        results[id] = {
+          status: 'ok',
+          comment: `${label} : ${extracted} mm conforme a l attendu ${expectedMm} mm.`,
+        };
+      } else {
+        results[id] = {
+          status: 'error',
+          comment: `${label} : ${extracted} mm — attendu : ${expectedMm} mm (ecart : ${extracted - expectedMm} mm).`,
+        };
+      }
+    }
+    // ── Fin post-traitement ──
 
     return NextResponse.json({
       results,
