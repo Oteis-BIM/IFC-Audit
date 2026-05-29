@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as XLSX from 'xlsx';
 
 export const runtime = 'nodejs';
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest) {  // Import dynamique pour éviter le bundling statique par Turbopack (xlsx est CommonJS)
+  // Avec esModuleInterop + CJS, les exports peuvent être sous .default ou au niveau racine
+  const xlsxMod = await import('xlsx');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const XLSX: typeof import('xlsx') = (xlsxMod as any).default ?? xlsxMod;
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
