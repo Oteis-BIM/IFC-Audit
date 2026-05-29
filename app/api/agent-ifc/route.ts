@@ -15,8 +15,11 @@ export async function POST(req: NextRequest) {
     const projectRoot = process.cwd();
     const scriptPath = path.join(projectRoot, 'scripts', 'agent_ifc.py');
 
-    // 🔒 FORÇAGE WINDOWS : On interdit à Node.js de chercher 'python3'
-    const pythonCommand = 'python';
+    // Chemin absolu vers Python pour éviter ENOENT quand le PATH du process enfant est restreint
+    // Windows Store alias ('python') peut être invisible aux process enfants → on utilise le chemin complet
+    const pythonCommand = process.platform === 'win32'
+      ? (process.env.PYTHON_PATH ?? 'C:\\Users\\morgan.Lenin\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe')
+      : 'python3';
 
     const childEnv = {
       ...process.env,
