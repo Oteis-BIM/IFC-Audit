@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRequire } from 'module';
+import * as XLSX from 'xlsx';
 
 export const runtime = 'nodejs';
-
-// xlsx est une lib CommonJS — on l'importe via require pour éviter les erreurs
-// d'isolatedModules / esModuleInterop sur Vercel (Next.js 16 + TypeScript strict)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const XLSX = createRequire(import.meta.url)('xlsx') as typeof import('xlsx');
 
 export async function POST(req: NextRequest) {
   try {
