@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf-8'); });
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf-8'); });
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
       child.on('close', (code) => {
         if (code !== 0) {
           resolve(NextResponse.json({ error: `Erreur Python : ${stderr}` }, { status: 500 }));
