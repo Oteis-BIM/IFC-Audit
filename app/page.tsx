@@ -1,7 +1,6 @@
 "use client";
 export const dynamic = 'force-dynamic';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
@@ -530,115 +529,75 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   // Import Excel
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  const handleExcelImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImportStatus(null);
+    e.target.value = '';
 
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const data = evt.target?.result;
-        const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        // header:1 → tableau de tableaux, ligne 0 = en-têtes
-        const rows: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    // ── Envoi du fichier à l'API route (parsing xlsx côté serveur) ──
+    const formData = new FormData();
+    formData.append('file', file);
 
-        if (rows.length < 2) {
-          setImportStatus({ ok: false, msg: 'Fichier vide ou sans données.' });
-          return;
-        }
+    let parsed: { nomDuType: string; type: string; categorieTnd: string }[] = [];
+    let allTnd: string[] = [];
 
-        // ── Repérage des colonnes par nom d'en-tête ──
-        const headers = rows[0].map(h => String(h ?? '').trim());
-        const colNom  = headers.findIndex(h => h.toLowerCase() === 'nom du type');
-        const colType = headers.findIndex(h => h.toLowerCase() === 'type');
-        const colTnd  = headers.findIndex(h => h.toLowerCase().includes('par composants tnd'));
+    try {
+      const res = await fetch('/api/parse-excel', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportStatus({ ok: false, msg: data.error ?? `Erreur ${res.status}` });
+        return;
+      }
+      parsed  = data.rows ?? [];
+      allTnd  = data.tndOptions ?? [];
+    } catch (err: unknown) {
+      setImportStatus({ ok: false, msg: `Erreur réseau : ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
 
-        if (colNom === -1 || colType === -1 || colTnd === -1) {
-          const missing = [
-            colNom  === -1 ? '"Nom du type"' : null,
-            colType === -1 ? '"Type"' : null,
-            colTnd  === -1 ? '"Par composants TND"' : null,
-          ].filter(Boolean).join(', ');
-          setImportStatus({ ok: false, msg: `Colonnes introuvables : ${missing}. Vérifiez les en-têtes du fichier Excel.` });
-          return;
-        }
+    setTndOptions(allTnd);
+    setExcelRows(parsed.map(r => ({ ...r, validation: '' })));
+    setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Lancement de l'analyse IA…` });
 
-        // ── Extraction + déduplication ──
-        const seen = new Set<string>();
-        const parsed: ExcelMappingRow[] = [];
-
-        for (let i = 1; i < rows.length; i++) {
-          const r = rows[i];
-          const nom = String(r[colNom]  ?? '').trim();
-          const typ = String(r[colType] ?? '').trim();
-          const tnd = String(r[colTnd]  ?? '').trim();
-          if (!nom && !typ) continue; // ligne vide
-          const key = `${nom}||${typ}||${tnd}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          parsed.push({ nomDuType: nom, type: typ, categorieTnd: tnd, validation: '' });
-        }
-
-        if (parsed.length === 0) {
-          setImportStatus({ ok: false, msg: 'Aucune ligne valide trouvée.' });
-          return;
-        }
-
-        // Valeurs distinctes pour la colonne TND
-        const allTnd = Array.from(new Set(parsed.map(r => r.categorieTnd).filter(Boolean))).sort();
-        setTndOptions(allTnd);
-        setExcelRows(parsed);
-        setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Lancement de l'analyse IA…` });
-
-        // ── Analyse IA de cohérence BIM ──
-        setAiLoading(true);
-        try {
-          const res = await fetch('/api/llm', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: `Tu es un expert BIM. Analyse la cohérence entre les noms de types d'objets IFC et leur catégorie TND (classification française du bâtiment).
+    // ── Analyse IA de cohérence BIM ──
+    setAiLoading(true);
+    try {
+      const res = await fetch('/api/llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `Tu es un expert BIM. Analyse la cohérence entre les noms de types d'objets IFC et leur catégorie TND (classification française du bâtiment).
 
 Pour chaque ligne, réponds UNIQUEMENT par un objet JSON de la forme :
 { "0": "Validé", "1": "Incohérence : ...", "2": "Validé", ... }
 
-Les clés sont les index (0-based) des lignes. 
+Les clés sont les index (0-based) des lignes.
 - Si le nom du type et le type IFC sont cohérents avec la catégorie TND, réponds "Validé".
 - Sinon, explique brièvement l'incohérence en 1 phrase courte.
 
 Lignes à analyser (index | Nom du type | Type | Catégorie TND) :
 ${parsed.map((r, i) => `${i} | ${r.nomDuType} | ${r.type} | ${r.categorieTnd}`).join('\n')}`,
-            }),
-          });
-          const d = await res.json();
-          const raw = d.response ?? d.message ?? d.content ?? '';
-          // Extraire le JSON de la réponse (peut être entouré de markdown)
-          const jsonMatch = raw.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const aiResults: Record<string, string> = JSON.parse(jsonMatch[0]);
-            setExcelRows(prev => prev.map((r, i) => ({
-              ...r,
-              validation: aiResults[String(i)] ?? '',
-            })));
-            setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA terminée.` });
-          } else {
-            setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA : réponse non parsable.` });
-          }
-        } catch {
-          setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA échouée (non bloquant).` });
-        } finally {
-          setAiLoading(false);
-        }
-
-      } catch (err: unknown) {
-        setImportStatus({ ok: false, msg: `Erreur de lecture : ${err instanceof Error ? err.message : String(err)}` });
+        }),
+      });
+      const d = await res.json();
+      const raw = d.response ?? d.message ?? d.content ?? '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const aiResults: Record<string, string> = JSON.parse(jsonMatch[0]);
+        setExcelRows(prev => prev.map((r, i) => ({
+          ...r,
+          validation: aiResults[String(i)] ?? '',
+        })));
+        setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA terminée.` });
+      } else {
+        setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA : réponse non parsable.` });
       }
-    };
-    reader.readAsArrayBuffer(file);
-    e.target.value = '';
+    } catch {
+      setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA échouée (non bloquant).` });
+    } finally {
+      setAiLoading(false);
+    }
   }, []);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
