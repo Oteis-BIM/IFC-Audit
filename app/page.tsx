@@ -1,6 +1,7 @@
 "use client";
 export const dynamic = 'force-dynamic';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
@@ -487,13 +488,22 @@ const DEFAULT_CATEGORY_PROPS: Record<string, string[]> = {
 };
 
 type MappingRule = 'Auto-detect' | 'Manual Mapping' | 'Excluded';
+// Ancienne interface conservée pour compatibilité interne (section 2)
 type MappingRow = { ifcType: string; category: string; rule: MappingRule; aiStatus: 'Verified' | 'Incohérence Nommage' | 'Warning' | '' };
+
+// Nouvelle interface pour le tableau issu du fichier Excel
+type ExcelMappingRow = {
+  nomDuType: string;
+  type: string;
+  categorieTnd: string;
+  validation: string; // résultat IA
+};
 
 function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
   const [selectedAuditId, setSelectedAuditId] = useState<number | null>(null);
   const selectedAudit = audits.find(a => a.id === selectedAuditId) ?? audits[0] ?? null;
 
-  // Mapping IFC type → catégorie (éditable)
+  // Mapping IFC type → catégorie (éditable) — section 2 seulement
   const [mappingRows, setMappingRows] = useState<MappingRow[]>(() =>
     Object.entries(IFC_TYPE_DEFAULTS).map(([ifcType, category]) => ({
       ifcType,
@@ -503,14 +513,133 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     }))
   );
 
+  // ── Données Excel ──
+  const [excelRows, setExcelRows] = useState<ExcelMappingRow[]>([]);
+  const [tndOptions, setTndOptions] = useState<string[]>([]); // valeurs distinctes colonne TND
+  const [aiLoading, setAiLoading] = useState(false);
+
   // Propriétés attendues par catégorie (éditable)
   const [categoryProps, setCategoryProps] = useState<Record<string, string[]>>(DEFAULT_CATEGORY_PROPS);
 
   // Filtre "manquants seulement" par catégorie
   const [filterMissing, setFilterMissing] = useState<Record<string, boolean>>({});
 
-  // Edition inline
+  // Edition inline (section 2)
   const [editingRow, setEditingRow] = useState<number | null>(null);
+
+  // Import Excel
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleExcelImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportStatus(null);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const data = evt.target?.result;
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        // header:1 → tableau de tableaux, ligne 0 = en-têtes
+        const rows: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+        if (rows.length < 2) {
+          setImportStatus({ ok: false, msg: 'Fichier vide ou sans données.' });
+          return;
+        }
+
+        // ── Repérage des colonnes par nom d'en-tête ──
+        const headers = rows[0].map(h => String(h ?? '').trim());
+        const colNom  = headers.findIndex(h => h.toLowerCase() === 'nom du type');
+        const colType = headers.findIndex(h => h.toLowerCase() === 'type');
+        const colTnd  = headers.findIndex(h => h.toLowerCase().includes('par composants tnd'));
+
+        if (colNom === -1 || colType === -1 || colTnd === -1) {
+          const missing = [
+            colNom  === -1 ? '"Nom du type"' : null,
+            colType === -1 ? '"Type"' : null,
+            colTnd  === -1 ? '"Par composants TND"' : null,
+          ].filter(Boolean).join(', ');
+          setImportStatus({ ok: false, msg: `Colonnes introuvables : ${missing}. Vérifiez les en-têtes du fichier Excel.` });
+          return;
+        }
+
+        // ── Extraction + déduplication ──
+        const seen = new Set<string>();
+        const parsed: ExcelMappingRow[] = [];
+
+        for (let i = 1; i < rows.length; i++) {
+          const r = rows[i];
+          const nom = String(r[colNom]  ?? '').trim();
+          const typ = String(r[colType] ?? '').trim();
+          const tnd = String(r[colTnd]  ?? '').trim();
+          if (!nom && !typ) continue; // ligne vide
+          const key = `${nom}||${typ}||${tnd}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          parsed.push({ nomDuType: nom, type: typ, categorieTnd: tnd, validation: '' });
+        }
+
+        if (parsed.length === 0) {
+          setImportStatus({ ok: false, msg: 'Aucune ligne valide trouvée.' });
+          return;
+        }
+
+        // Valeurs distinctes pour la colonne TND
+        const allTnd = Array.from(new Set(parsed.map(r => r.categorieTnd).filter(Boolean))).sort();
+        setTndOptions(allTnd);
+        setExcelRows(parsed);
+        setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Lancement de l'analyse IA…` });
+
+        // ── Analyse IA de cohérence BIM ──
+        setAiLoading(true);
+        try {
+          const res = await fetch('/api/llm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: `Tu es un expert BIM. Analyse la cohérence entre les noms de types d'objets IFC et leur catégorie TND (classification française du bâtiment).
+
+Pour chaque ligne, réponds UNIQUEMENT par un objet JSON de la forme :
+{ "0": "Validé", "1": "Incohérence : ...", "2": "Validé", ... }
+
+Les clés sont les index (0-based) des lignes. 
+- Si le nom du type et le type IFC sont cohérents avec la catégorie TND, réponds "Validé".
+- Sinon, explique brièvement l'incohérence en 1 phrase courte.
+
+Lignes à analyser (index | Nom du type | Type | Catégorie TND) :
+${parsed.map((r, i) => `${i} | ${r.nomDuType} | ${r.type} | ${r.categorieTnd}`).join('\n')}`,
+            }),
+          });
+          const d = await res.json();
+          const raw = d.response ?? d.message ?? d.content ?? '';
+          // Extraire le JSON de la réponse (peut être entouré de markdown)
+          const jsonMatch = raw.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const aiResults: Record<string, string> = JSON.parse(jsonMatch[0]);
+            setExcelRows(prev => prev.map((r, i) => ({
+              ...r,
+              validation: aiResults[String(i)] ?? '',
+            })));
+            setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA terminée.` });
+          } else {
+            setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA : réponse non parsable.` });
+          }
+        } catch {
+          setImportStatus({ ok: true, msg: `${parsed.length} ligne(s) importée(s) depuis "${file.name}" — Analyse IA échouée (non bloquant).` });
+        } finally {
+          setAiLoading(false);
+        }
+
+      } catch (err: unknown) {
+        setImportStatus({ ok: false, msg: `Erreur de lecture : ${err instanceof Error ? err.message : String(err)}` });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }, []);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
 
@@ -547,15 +676,36 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               const { discipline } = parseMaquetteDetails(a.details);
               return <option key={a.id} value={a.id}>{discipline ? `${discipline} — ` : ''}{a.project_name}</option>;
             })}
-          </select>
-          <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+          </select>          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+          >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             Charger le fichier de mappage (Excel)
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleExcelImport}
+          />
         </div>
       </div>
+
+      {/* Bandeau statut import Excel */}
+      {importStatus && (
+        <div className={`flex items-center gap-3 rounded-xl px-5 py-3 text-sm font-medium border ${importStatus.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {importStatus.ok
+            ? <svg className="w-4 h-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+            : <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          }
+          {importStatus.msg}
+          <button onClick={() => setImportStatus(null)} className="ml-auto text-xs opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       {/* Titre maquette sélectionnée */}
       {selectedAudit && (
@@ -573,91 +723,104 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           </div>
           <span className="ml-auto text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">✓ Chargé</span>
         </div>
-      )}
-
-      {/* Section 1 — Mappage des Catégories */}
+      )}      {/* Section 1 — Mappage des Catégories */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100">
-          <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-          <h3 className="text-base font-bold text-slate-800">Mappage des Catégories</h3>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            <h3 className="text-base font-bold text-slate-800">Mappage des Catégories</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            {aiLoading && (
+              <span className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold animate-pulse">
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                Analyse IA en cours…
+              </span>
+            )}
+            <span className="text-xs text-slate-400">{excelRows.length > 0 ? `${excelRows.length} ligne(s)` : 'Chargez un fichier Excel'}</span>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Type d&apos;objet IFC</th>
-                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Catégorie client</th>
-                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Règle appliquée</th>
-                <th className="text-left px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation/Commentaires IA</th>
-                <th className="px-4 py-3 w-10"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {mappingRows.map((row, idx) => (
-                <tr key={row.ifcType} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-blue-50/30 transition-colors`}>
-                  <td className="px-6 py-3">
-                    <span className="text-blue-600 font-mono text-sm font-semibold">{row.ifcType}</span>
-                  </td>
-                  <td className="px-6 py-3">
-                    {editingRow === idx ? (
-                      <input
-                        autoFocus
-                        className="border border-blue-400 rounded-lg px-2 py-1 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-400 w-44"
-                        value={row.category}
-                        onChange={e => setMappingRows(prev => prev.map((r, i) => i === idx ? { ...r, category: e.target.value } : r))}
-                        onBlur={() => setEditingRow(null)}
-                        onKeyDown={e => e.key === 'Enter' && setEditingRow(null)}
-                      />
-                    ) : (
-                      <span
-                        className="inline-block bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full cursor-pointer hover:bg-blue-200 transition-colors"
-                        onClick={() => setEditingRow(idx)}
-                      >
-                        {row.category || <span className="text-slate-400 italic">— cliquer pour définir</span>}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-3">
-                    <select
-                      value={row.rule}
-                      onChange={e => setMappingRows(prev => prev.map((r, i) => i === idx ? { ...r, rule: e.target.value as MappingRule } : r))}
-                      className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    >
-                      <option>Auto-detect</option>
-                      <option>Manual Mapping</option>
-                      <option>Excluded</option>
-                    </select>
-                  </td>
-                  <td className="px-6 py-3">
-                    {row.aiStatus === 'Verified' && (
-                      <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-semibold">
-                        <CheckCircle className="h-3.5 w-3.5" /> Verified
-                      </span>
-                    )}
-                    {row.aiStatus === 'Incohérence Nommage' && (
-                      <span className="flex items-center gap-1.5 text-orange-500 text-xs font-semibold">
-                        <AlertCircle className="h-3.5 w-3.5" /> Incohérence Nommage
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => setMappingRows(prev => prev.filter((_, i) => i !== idx))}
-                      className="text-slate-300 hover:text-red-400 transition-colors"
-                      title="Supprimer"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </td>
+
+        {excelRows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+            <svg className="w-12 h-12 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <p className="text-sm font-medium">Aucun fichier chargé</p>
+            <p className="text-xs mt-1">Cliquez sur &quot;Charger le fichier de mappage (Excel)&quot; pour importer vos données</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[28%]">Nom du type</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[18%]">Type</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[24%]">Catégories TND</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation / Commentaires</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {excelRows.map((row, idx) => {
+                  const isIncoh = row.validation && row.validation !== 'Validé';
+                  const isValidated = row.validation === 'Validé';
+                  return (
+                    <tr
+                      key={idx}
+                      className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-blue-50/20 transition-colors`}
+                    >
+                      {/* Col 1 — Nom du type */}
+                      <td className="px-5 py-2.5">
+                        <span className="text-slate-800 text-xs font-medium">{row.nomDuType || <span className="text-slate-300 italic">—</span>}</span>
+                      </td>
+                      {/* Col 2 — Type */}
+                      <td className="px-5 py-2.5">
+                        <span className="inline-block bg-blue-50 text-blue-700 text-[11px] font-semibold px-2.5 py-0.5 rounded-full font-mono">
+                          {row.type || <span className="text-slate-300 italic">—</span>}
+                        </span>
+                      </td>
+                      {/* Col 3 — Catégories TND (liste déroulante éditable) */}
+                      <td className="px-5 py-2.5">
+                        <select
+                          value={row.categorieTnd}
+                          onChange={e => setExcelRows(prev => prev.map((r, i) => i === idx ? { ...r, categorieTnd: e.target.value } : r))}
+                          className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 max-w-[200px] w-full"
+                        >
+                          {row.categorieTnd && !tndOptions.includes(row.categorieTnd) && (
+                            <option value={row.categorieTnd}>{row.categorieTnd}</option>
+                          )}
+                          {tndOptions.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                          <option value="">— Non définie —</option>
+                        </select>
+                      </td>
+                      {/* Col 4 — Validation IA */}
+                      <td className="px-5 py-2.5">
+                        {aiLoading && !row.validation ? (
+                          <span className="text-xs text-slate-400 italic animate-pulse">Analyse…</span>
+                        ) : isValidated ? (
+                          <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-semibold">
+                            <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Validé
+                          </span>
+                        ) : isIncoh ? (
+                          <span className="flex items-center gap-1.5 text-orange-600 text-xs font-semibold">
+                            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                            <span className="leading-tight">{row.validation}</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-300 italic">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Section 2 — Vérification des Propriétés par Catégorie */}
