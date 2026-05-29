@@ -1,12 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-export async function POST(req: NextRequest) {  // Import dynamique pour éviter le bundling statique par Turbopack (xlsx est CommonJS)
-  // Avec esModuleInterop + CJS, les exports peuvent être sous .default ou au niveau racine
-  const xlsxMod = await import('xlsx');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const XLSX: typeof import('xlsx') = (xlsxMod as any).default ?? xlsxMod;
+export async function POST(req: NextRequest) {
+  // require() : webpack + serverExternalPackages chargent xlsx via Node.js natif
+  // evite le bundling statique Turbopack qui ne supporte pas les modules CJS purs
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require('xlsx') as typeof import('xlsx');
+
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
@@ -18,10 +19,9 @@ export async function POST(req: NextRequest) {  // Import dynamique pour éviter
     const rows: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
     if (rows.length < 2) {
-      return NextResponse.json({ error: 'Fichier vide ou sans données.' }, { status: 422 });
+      return NextResponse.json({ error: 'Fichier vide ou sans donnees.' }, { status: 422 });
     }
 
-    // ── Repérage des colonnes par nom d'en-tête ──
     const headers = rows[0].map((h: unknown) => String(h ?? '').trim());
     const colNom  = headers.findIndex((h: string) => h.toLowerCase() === 'nom du type');
     const colType = headers.findIndex((h: string) => h.toLowerCase() === 'type');
@@ -29,14 +29,13 @@ export async function POST(req: NextRequest) {  // Import dynamique pour éviter
 
     if (colNom === -1 || colType === -1 || colTnd === -1) {
       const missing = [
-        colNom  === -1 ? '"Nom du type"'          : null,
-        colType === -1 ? '"Type"'                  : null,
-        colTnd  === -1 ? '"Par composants TND"'    : null,
+        colNom  === -1 ? '"Nom du type"'       : null,
+        colType === -1 ? '"Type"'               : null,
+        colTnd  === -1 ? '"Par composants TND"' : null,
       ].filter(Boolean).join(', ');
       return NextResponse.json({ error: `Colonnes introuvables : ${missing}.` }, { status: 422 });
     }
 
-    // ── Extraction + déduplication ──
     const seen = new Set<string>();
     const parsed: { nomDuType: string; type: string; categorieTnd: string }[] = [];
 
@@ -53,11 +52,10 @@ export async function POST(req: NextRequest) {  // Import dynamique pour éviter
     }
 
     if (parsed.length === 0) {
-      return NextResponse.json({ error: 'Aucune ligne valide trouvée.' }, { status: 422 });
+      return NextResponse.json({ error: 'Aucune ligne valide trouvee.' }, { status: 422 });
     }
 
     const tndOptions = Array.from(new Set(parsed.map(r => r.categorieTnd).filter(Boolean))).sort();
-
     return NextResponse.json({ rows: parsed, tndOptions, fileName: file.name });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
