@@ -1537,12 +1537,14 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                   const storeys = ifcStoreys[m.id] ?? [];
                                   const found = storeys.find(s =>
                                     lvl.name && s.name.toLowerCase() === lvl.name.toLowerCase()
-                                  ) ?? null;
-
-                                  // Comparaison en mm — tolérance ±50 mm
+                                  ) ?? null;                                  // Comparaison stricte en mm — tolérance 0 mm
+                                  // elevOk = true seulement si :
+                                  //   - aucune valeur attendue n'est configurée (displayElevMm === null)
+                                  //   - OU la valeur IFC est connue ET égale exactement à la valeur attendue
                                   const ifcElev = found?.elevation ?? null;
                                   const nameOk = !!lvl.name && !!found;
-                                  const elevOk = displayElevMm === null || (ifcElev !== null && Math.abs(ifcElev - displayElevMm) <= 50);// Use aiLoading/aiDone per maquette to distinguish pending vs missing:
+                                  const elevOk = displayElevMm === null
+                                    || (ifcElev !== null && ifcElev === displayElevMm);// Use aiLoading/aiDone per maquette to distinguish pending vs missing:
                                   // - No storeys + aiLoading  => pending (IA running)
                                   // - No storeys + aiDone     => missing (IA finished but no levels) or na if no expected name
                                   // - No storeys otherwise    => pending (IA not started yet)
@@ -1556,11 +1558,11 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                     } else {
                                       overall = 'pending';
                                     }
-                                  } else {
-                                    if (!lvl.name) overall = 'na';
+                                  } else {                                    if (!lvl.name) overall = 'na';
                                     else if (!found) overall = 'missing';
                                     else if (nameOk && elevOk) overall = 'ok';
-                                    else if (nameOk) overall = 'warning';
+                                    // Niveau trouvé mais élévation IFC ≠ valeur attendue → erreur rouge
+                                    else if (nameOk && !elevOk) overall = 'error';
                                     else overall = 'error';
                                   }
 
