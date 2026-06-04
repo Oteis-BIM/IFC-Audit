@@ -492,11 +492,15 @@ type MappingRow = { ifcType: string; category: string; rule: MappingRule; aiStat
 
 // Ligne issue du fichier Excel de mappage
 type ExcelMappingRow = {
-  nomDuType:    string; // col "Nom du type"
-  type:         string; // col "Type"
-  categorieMoa: string; // col "Catégorie TND" → libellé MOA, éditable
-  validation:   string; // résultat IA : "Validé" | "Non validé : ..."
+  nomDuType:    string;
+  type:         string;
+  categorieMoa: string;
+  validation:   string;
 };
+
+// Types pour le dialogue import propriétés Excel
+type PropsSheetInfo = { sheetName: string; headers: string[]; preview: string[][] };
+type PropsSheetMapping = { colCategorie: string; colsProprietes: string[] };
 
 // ── Analyse IA : appel /api/validate-mapping par batch de 15 lignes ──────
 const BATCH_SIZE = 15;
@@ -583,6 +587,181 @@ async function analyzeRow(
   } finally {
     setAnalyzingIdx(null);
   }
+}
+
+// ── Dialogue import Excel de propriétés ──────────────────────────────────────
+function PropsExcelDialog({
+  sheets,
+  onConfirm,
+  onClose,
+}: {
+  sheets: PropsSheetInfo[];
+  onConfirm: (sheetMappings: { sheetName: string; colCategorie: string; colsProprietes: string[] }[]) => void;
+  onClose: () => void;
+}) {
+  const [activeSheet, setActiveSheet] = useState(0);
+  const [mappings, setMappings] = useState<Record<string, PropsSheetMapping>>(() =>
+    Object.fromEntries(sheets.map(s => [s.sheetName, { colCategorie: '', colsProprietes: [] }]))
+  );
+
+  function toggleProp(sheetName: string, col: string) {
+    setMappings(prev => {
+      const curr = prev[sheetName].colsProprietes;
+      const next = curr.includes(col) ? curr.filter(c => c !== col) : [...curr, col];
+      return { ...prev, [sheetName]: { ...prev[sheetName], colsProprietes: next } };
+    });
+  }
+
+  const allConfigured = sheets.every(s => {
+    const m = mappings[s.sheetName];
+    return m.colCategorie && m.colsProprietes.length > 0;
+  });
+
+  const sheet = sheets[activeSheet];
+  const mapping = mappings[sheet.sheetName];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 bg-[#3b1f6e] rounded-t-2xl">
+          <div>
+            <h3 className="text-white font-bold text-base">Configurer le mapping des propriétés</h3>
+            <p className="text-purple-300 text-xs mt-0.5">Sélectionnez la colonne catégorie et les colonnes propriétés pour chaque onglet</p>
+          </div>
+          <button onClick={onClose} className="text-purple-300 hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Onglets feuilles */}
+        <div className="flex border-b border-slate-200 bg-slate-50 overflow-x-auto shrink-0">
+          {sheets.map((s, i) => (
+            <button
+              key={s.sheetName}
+              onClick={() => setActiveSheet(i)}
+              className={`px-5 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                activeSheet === i
+                  ? 'border-[#3b1f6e] text-[#3b1f6e] bg-white'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {s.sheetName}
+              {mappings[s.sheetName].colCategorie && mappings[s.sheetName].colsProprietes.length > 0 && (
+                <span className="ml-2 w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Contenu onglet */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* 1 — Colonne catégorie */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+              1 — Quelle colonne contient les catégories d&apos;objets ?
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {sheet.headers.map(h => (
+                <button
+                  key={h}
+                  onClick={() => setMappings(prev => ({ ...prev, [sheet.sheetName]: { ...prev[sheet.sheetName], colCategorie: h } }))}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    mapping.colCategorie === h
+                      ? 'bg-[#3b1f6e] text-white border-[#3b1f6e]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-purple-400 hover:text-purple-700'
+                  }`}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 2 — Colonnes propriétés */}
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+              2 — Quelles colonnes contiennent les propriétés à contrôler ?
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {sheet.headers.filter(h => h !== mapping.colCategorie).map(h => (
+                <button
+                  key={h}
+                  onClick={() => toggleProp(sheet.sheetName, h)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    mapping.colsProprietes.includes(h)
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-400 hover:text-emerald-700'
+                  }`}
+                >
+                  {h}
+                  {mapping.colsProprietes.includes(h) && <span className="ml-1.5">✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Aperçu */}
+          {mapping.colCategorie && mapping.colsProprietes.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Aperçu</label>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left px-4 py-2 font-bold text-[#3b1f6e]">{mapping.colCategorie}</th>
+                      {mapping.colsProprietes.map(p => (
+                        <th key={p} className="text-left px-4 py-2 font-bold text-emerald-700">{p}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sheet.preview.map((row, ri) => {
+                      const catIdx = sheet.headers.indexOf(mapping.colCategorie);
+                      const propIdxs = mapping.colsProprietes.map(p => sheet.headers.indexOf(p));
+                      return (
+                        <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                          <td className="px-4 py-2 font-medium text-slate-700">{row[catIdx]}</td>
+                          {propIdxs.map((pi, pii) => (
+                            <td key={pii} className="px-4 py-2 text-slate-500">{row[pi] ?? '—'}</td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between rounded-b-2xl">
+          <span className="text-xs text-slate-400">
+            {sheets.filter(s => mappings[s.sheetName].colCategorie && mappings[s.sheetName].colsProprietes.length > 0).length} / {sheets.length} onglet{sheets.length > 1 ? 's' : ''} configuré{sheets.length > 1 ? 's' : ''}
+          </span>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
+              Annuler
+            </button>
+            <button
+              disabled={!allConfigured}
+              onClick={() => onConfirm(sheets.map(s => ({ sheetName: s.sheetName, ...mappings[s.sheetName] })))}
+              className={`px-6 py-2 text-sm font-bold rounded-xl transition-colors ${
+                allConfigured
+                  ? 'bg-[#3b1f6e] hover:bg-[#4e2d8a] text-white'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              Annoter
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MappingValidateBar({ rows, onSave }: { rows: ExcelMappingRow[]; onSave: () => Promise<void> }) {
@@ -708,7 +887,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     setImportStatus({ ok: true, msg: 'Relance de l\'analyse IA…' });
     await callAiAnalysis(excelRows, setExcelRows, setAiLoading, setImportStatus);
   }, [excelRows]);
-
   // ── Enregistrement du mapping validé dans Supabase ───────────────────────
   const handleSaveMapping = useCallback(async () => {
     const value = JSON.stringify(excelRows.map(r => ({
@@ -723,6 +901,72 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     );
     if (error) throw new Error(error.message);
   }, [excelRows]);
+
+  // ── Import Excel propriétés MOA ───────────────────────────────────────────
+  const propsFileInputRef = useRef<HTMLInputElement>(null);
+  const [propsSheets, setPropsSheets] = useState<PropsSheetInfo[] | null>(null);
+  const [propsFileBase64, setPropsFileBase64] = useState<string>('');
+  const [propsDialogOpen, setPropsDialogOpen] = useState(false);
+  const [propsLoading, setPropsLoading] = useState(false);
+  const [propsError, setPropsError] = useState<string | null>(null);
+  const [customCategoryProps, setCustomCategoryProps] = useState<Record<string, string[]> | null>(null);
+
+  const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setPropsLoading(true);
+    setPropsError(null);
+    try {
+      // Convertit en base64 pour usage ultérieur (extraction complète)
+      const ab = await file.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+      setPropsFileBase64(b64);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      setPropsSheets(data.sheets);
+      setPropsDialogOpen(true);
+    } catch (err: unknown) {
+      setPropsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPropsLoading(false);
+    }
+  }, []);
+
+  const handlePropsDialogConfirm = useCallback(async (
+    sheetMappings: { sheetName: string; colCategorie: string; colsProprietes: string[] }[]
+  ) => {
+    setPropsDialogOpen(false);
+    setPropsLoading(true);
+    setPropsError(null);
+    try {
+      const merged: Record<string, Set<string>> = {};
+      for (const sm of sheetMappings) {
+        const res = await fetch('/api/parse-props-excel', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileBase64: propsFileBase64, ...sm }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+        for (const [cat, props] of Object.entries(data.mapping as Record<string, string[]>)) {
+          if (!merged[cat]) merged[cat] = new Set();
+          props.forEach(p => merged[cat].add(p));
+        }
+      }
+      const result: Record<string, string[]> = {};
+      for (const [cat, props] of Object.entries(merged)) result[cat] = Array.from(props);
+      setCustomCategoryProps(result);
+    } catch (err: unknown) {
+      setPropsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPropsLoading(false);
+    }
+  }, [propsFileBase64]);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
 
@@ -962,11 +1206,80 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         )}
         {/* Bouton Valider — actif uniquement si toutes les lignes sont "Validé" */}
         {excelRows.length > 0 && <MappingValidateBar rows={excelRows} onSave={handleSaveMapping} />}
-      </div>
-
-      {/* Section 2 — Vérification des Propriétés par Catégorie */}
+      </div>      {/* Section 2 — Vérification des Propriétés par Catégorie */}
       <div>
-        <h3 className="text-xl font-bold text-slate-800 mb-4">Vérification des Propriétés par Catégorie</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-slate-800">Vérification des Propriétés par Catégorie</h3>
+          <div className="flex items-center gap-3">
+            {propsError && <span className="text-xs text-red-500">{propsError}</span>}
+            {propsLoading && (
+              <span className="text-xs text-purple-600 italic flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Chargement…
+              </span>
+            )}
+            <input
+              ref={propsFileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handlePropsExcelImport}
+              className="hidden"
+            />
+            <button
+              onClick={() => propsFileInputRef.current?.click()}
+              disabled={propsLoading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-[#3b1f6e] hover:bg-[#4e2d8a] text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Charger fichier Excel
+            </button>
+          </div>
+        </div>
+
+        {/* Dialogue de configuration du mapping */}
+        {propsDialogOpen && propsSheets && (
+          <PropsExcelDialog
+            sheets={propsSheets}
+            onConfirm={handlePropsDialogConfirm}
+            onClose={() => setPropsDialogOpen(false)}
+          />
+        )}
+
+        {/* Cartes issues du fichier Excel importé */}
+        {customCategoryProps && Object.keys(customCategoryProps).length > 0 && (
+          <div className="space-y-4 mb-6">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-bold text-[#3b1f6e] uppercase tracking-widest">Propriétés MOA importées</span>
+              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{Object.keys(customCategoryProps).length} catégorie{Object.keys(customCategoryProps).length > 1 ? 's' : ''}</span>
+              <button
+                onClick={() => setCustomCategoryProps(null)}
+                className="ml-auto text-xs text-slate-400 hover:text-red-400 transition-colors"
+              >✕ Effacer</button>
+            </div>
+            {Object.entries(customCategoryProps).map(([cat, props]) => (
+              <div key={cat} className="bg-white rounded-2xl border border-purple-100 shadow-sm overflow-hidden">
+                <div className="flex items-center gap-3 px-5 py-3 border-b border-purple-50 bg-purple-50/40">
+                  <div className="w-1 h-6 bg-[#3b1f6e] rounded-full" />
+                  <span className="font-bold text-slate-800">{cat}</span>
+                  <span className="text-xs text-slate-400">{props.length} propriété{props.length > 1 ? 's' : ''}</span>
+                </div>
+                <div className="px-5 py-3 flex flex-wrap gap-2">
+                  {props.map(p => (
+                    <span key={p} className="inline-flex items-center gap-1 bg-purple-50 border border-purple-200 text-[#3b1f6e] text-xs font-medium px-3 py-1 rounded-full">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-4">
           {categories.map(cat => {
             const props = categoryProps[cat] ?? [];
