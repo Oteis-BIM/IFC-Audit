@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
     }
 
     const headers = rows[0].map((h: unknown) => String(h ?? '').trim());
-    const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Normalise : supprime accents (NFD + strip combining), met en minuscules, retire non-alphanumériques
+    const normalise = (s: string) =>
+      s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const colNom  = headers.findIndex((h: string) => normalise(h) === normalise('Nom du type'));
     const colType = headers.findIndex((h: string) => normalise(h) === normalise('Type'));
