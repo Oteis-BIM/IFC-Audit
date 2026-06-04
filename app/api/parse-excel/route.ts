@@ -23,17 +23,25 @@ export async function POST(req: NextRequest) {
     }
 
     const headers = rows[0].map((h: unknown) => String(h ?? '').trim());
-    const colNom  = headers.findIndex((h: string) => h.toLowerCase() === 'nom du type');
-    const colType = headers.findIndex((h: string) => h.toLowerCase() === 'type');
-    const colTnd  = headers.findIndex((h: string) => h.toLowerCase().includes('par composants tnd'));
+    const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const colNom  = headers.findIndex((h: string) => normalise(h) === normalise('Nom du type'));
+    const colType = headers.findIndex((h: string) => normalise(h) === normalise('Type'));
+    // Accepte : "Catégorie MOA", "Catégorie TND", "Par composants TND", "CategorieMOA"…
+    const colTnd  = headers.findIndex((h: string) => {
+      const n = normalise(h);
+      return n.includes('categoriemoa') || n.includes('categorietnd') || n.includes('parcomposantstnd') || n.includes('categorymoa');
+    });
 
     if (colNom === -1 || colType === -1 || colTnd === -1) {
       const missing = [
-        colNom  === -1 ? '"Nom du type"'       : null,
-        colType === -1 ? '"Type"'               : null,
-        colTnd  === -1 ? '"Par composants TND"' : null,
+        colNom  === -1 ? '"Nom du type"'                          : null,
+        colType === -1 ? '"Type"'                                 : null,
+        colTnd  === -1 ? '"Catégorie MOA" / "Catégorie TND"'     : null,
       ].filter(Boolean).join(', ');
-      return NextResponse.json({ error: `Colonnes introuvables : ${missing}.` }, { status: 422 });
+      return NextResponse.json({
+        error: `Colonnes introuvables : ${missing}. En-têtes détectés : ${headers.join(', ')}`,
+      }, { status: 422 });
     }
 
     const seen = new Set<string>();

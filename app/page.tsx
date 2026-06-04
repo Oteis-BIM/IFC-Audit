@@ -770,34 +770,21 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         <span className="inline-block bg-blue-50 text-blue-700 text-[11px] font-semibold px-2.5 py-0.5 rounded-full font-mono">
                           {row.type || <span className="italic font-normal text-slate-300">—</span>}
                         </span>
-                      </td>
-
-                      {/* Col 3 — Catégorie MOA (éditable : select + saisie libre) */}
+                      </td>                      {/* Col 3 — Catégorie MOA (éditable avec suggestions datalist) */}
                       <td className="px-5 py-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={moaOptions.includes(row.categorieMoa) ? row.categorieMoa : '__custom__'}
-                            onChange={e => {
-                              if (e.target.value !== '__custom__') {
-                                setExcelRows(prev => prev.map((r, i) => i === idx ? { ...r, categorieMoa: e.target.value, validation: '' } : r));
-                              }
-                            }}
-                            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 flex-1 min-w-0"
-                          >
-                            {moaOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                            {!moaOptions.includes(row.categorieMoa) && row.categorieMoa && (
-                              <option value="__custom__">{row.categorieMoa}</option>
-                            )}
-                            <option value="">— Non définie —</option>
-                          </select>
-                          <input
-                            type="text"
-                            value={row.categorieMoa}
-                            onChange={e => setExcelRows(prev => prev.map((r, i) => i === idx ? { ...r, categorieMoa: e.target.value, validation: '' } : r))}
-                            placeholder="Saisie libre…"
-                            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 w-28 shrink-0"
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          list={`moa-options-${idx}`}
+                          value={row.categorieMoa}
+                          onChange={e => setExcelRows(prev => prev.map((r, i) =>
+                            i === idx ? { ...r, categorieMoa: e.target.value, validation: '' } : r
+                          ))}
+                          placeholder="Saisie libre ou choisir…"
+                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-slate-300"
+                        />
+                        <datalist id={`moa-options-${idx}`}>
+                          {moaOptions.map(opt => <option key={opt} value={opt} />)}
+                        </datalist>
                       </td>
 
                       {/* Col 4 — Validation / Commentaires */}
