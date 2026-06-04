@@ -2675,7 +2675,7 @@ export default function Dashboard() {
             )}            <Bell className="h-5 w-5 text-purple-300" />
             <UserCircle className="h-6 w-6 text-purple-300" />
           </div>
-        </header>        <div className="flex-1 overflow-y-auto p-8">          {activeTab === 'Maquettes' ? (
+        </header>        <div className="flex-1 overflow-y-auto p-8 bg-[#ede8f5]">          {activeTab === 'Maquettes' ? (
             <>
               <div className="flex justify-between items-end mb-8">
                 <div>
