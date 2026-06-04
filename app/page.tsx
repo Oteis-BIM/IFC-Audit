@@ -2612,26 +2612,26 @@ export default function Dashboard() {
   const nbOk = audits.filter(a => a.status === 'OK').length;
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+    <div className="flex h-screen bg-[#f3f0f8] font-sans text-slate-900">
       {/* SIDEBAR */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
+      <aside className="w-64 bg-[#3b1f6e] border-r border-[#4e2d8a] flex flex-col">
         <div className="p-6">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Contexte du projet</p>
-          <h2 className="text-lg font-bold text-slate-800">Project Alpha</h2>
-          <p className="text-xs text-slate-500 uppercase">QC Haute Précision</p>
+          <p className="text-xs font-semibold text-purple-300 uppercase tracking-wider">Contexte du projet</p>
+          <h2 className="text-lg font-bold text-white">Project Alpha</h2>
+          <p className="text-xs text-purple-300 uppercase">QC Haute Précision</p>
         </div>        <nav className="flex-1 px-4 space-y-1">
-          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-purple-200 hover:bg-white/10 rounded-lg">
             <LayoutDashboard className="mr-3 h-5 w-5" /> Vue d'ensemble
           </button>
-          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-purple-200 hover:bg-white/10 rounded-lg">
             <Layers className="mr-3 h-5 w-5" /> Contrôle Structure Maquette
-          </button>          <button className="w-full flex items-center px-4 py-3 text-sm font-medium bg-slate-100 text-blue-600 rounded-lg">
+          </button>          <button className="w-full flex items-center px-4 py-3 text-sm font-medium bg-white/15 text-white rounded-lg">
             <Ruler className="mr-3 h-5 w-5" /> Audit Géométrique
           </button>
-          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-purple-200 hover:bg-white/10 rounded-lg">
             <Database className="mr-3 h-5 w-5" /> Vérification Métadonnées
           </button>
-          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">
+          <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-purple-200 hover:bg-white/10 rounded-lg">
             <CheckCircle2 className="mr-3 h-5 w-5" /> Validation
           </button>
         </nav>
@@ -2639,19 +2639,19 @@ export default function Dashboard() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8">
-          <div className="flex items-center space-x-2 text-slate-800 font-bold uppercase tracking-tight">
-             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white text-[10px]">IFC</div>
+        <header className="h-16 bg-[#3b1f6e] border-b border-[#4e2d8a] flex items-center justify-between px-8">
+          <div className="flex items-center space-x-2 text-white font-bold uppercase tracking-tight">
+             <div className="w-6 h-6 bg-purple-400 rounded flex items-center justify-center text-white text-[10px]">IFC</div>
              <span>IFC Quality Control</span>
-          </div>          <nav className="flex space-x-6 text-sm font-medium text-slate-500">
+          </div>          <nav className="flex space-x-6 text-sm font-medium text-purple-300">
             {['Tableau de bord', 'Maquettes', 'Rapports', 'Conformité', 'Paramètres', 'LLM'].map(t => (
               <span
                 key={t}
                 onClick={() => setActiveTab(t)}
                 className={`py-5 cursor-pointer border-b-2 transition-colors ${
                   activeTab === t
-                    ? 'text-blue-600 border-blue-600'
-                    : 'border-transparent hover:text-slate-800'
+                    ? 'text-white border-purple-300'
+                    : 'border-transparent hover:text-white'
                 }`}
               >{t}</span>
             ))}
@@ -2672,9 +2672,8 @@ export default function Dashboard() {
                 <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0"></span>
                 Se connecter à Box
               </button>
-            )}
-            <Bell className="h-5 w-5 text-slate-400" />
-            <UserCircle className="h-6 w-6 text-slate-400" />
+            )}            <Bell className="h-5 w-5 text-purple-300" />
+            <UserCircle className="h-6 w-6 text-purple-300" />
           </div>
         </header>        <div className="flex-1 overflow-y-auto p-8">          {activeTab === 'Maquettes' ? (
             <>
