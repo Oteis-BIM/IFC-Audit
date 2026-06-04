@@ -792,10 +792,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         <datalist id={`moa-options-${idx}`}>
                           {moaOptions.map(opt => <option key={opt} value={opt} />)}
                         </datalist>
-                      </td>
-
-                      {/* Col 4 — Validation / Commentaires */}
-                      <td className="px-5 py-2.5">
+                      </td>                      {/* Col 4 — Validation / Commentaires */}
+                      <td className="px-5 py-2.5 min-w-[220px]">
                         {aiLoading && !row.validation ? (
                           <span className="text-xs text-slate-400 italic animate-pulse">Analyse…</span>
                         ) : isValide ? (
@@ -803,10 +801,28 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Validé
                           </span>
                         ) : isNonValide ? (
-                          <span className="inline-flex items-start gap-1.5 text-orange-600 text-xs font-semibold">
-                            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                            <span className="leading-snug">{row.validation}</span>
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            {/* Commentaire IA */}
+                            <span className="inline-flex items-start gap-1.5 text-orange-600 text-xs font-semibold">
+                              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                              <span className="leading-snug">
+                                {/* Affiche uniquement la raison après "Non validé : " */}
+                                {row.validation.replace(/^Non validé\s*:\s*/i, '')}
+                              </span>
+                            </span>
+                            {/* Bouton forcer Validé */}
+                            <button
+                              onClick={() => setExcelRows(prev => prev.map((r, i) =>
+                                i === idx ? { ...r, validation: 'Validé' } : r
+                              ))}
+                              className="self-start flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-emerald-600 border border-slate-200 hover:border-emerald-300 bg-white hover:bg-emerald-50 rounded-md px-2 py-0.5 transition-colors"
+                              title="Forcer le statut à Validé"
+                            >
+                              <CheckCircle className="h-3 w-3" /> Forcer Validé
+                            </button>
+                          </div>
+                        ) : row.validation === 'Non analysé' ? (
+                          <span className="text-xs text-slate-400 italic">Non analysé</span>
                         ) : (
                           <span className="text-xs text-slate-300 italic">—</span>
                         )}
