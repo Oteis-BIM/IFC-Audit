@@ -585,6 +585,33 @@ async function analyzeRow(
   }
 }
 
+function MappingValidateBar({ rows }: { rows: ExcelMappingRow[] }) {
+  const allValide = rows.every(r => r.validation === 'Validé');
+  const countValide = rows.filter(r => r.validation === 'Validé').length;
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl">
+      <span className="text-xs text-slate-500">
+        {allValide
+          ? <span className="text-emerald-600 font-semibold">✓ Toutes les lignes sont validées</span>
+          : <span>{countValide} / {rows.length} ligne{rows.length > 1 ? 's' : ''} validée{rows.length > 1 ? 's' : ''}</span>
+        }
+      </span>
+      <button
+        disabled={!allValide}
+        className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm ${
+          allValide
+            ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+        }`}
+        title={allValide ? 'Valider le mapping' : 'Toutes les lignes doivent être validées'}
+      >
+        <CheckCircle className="h-4 w-4" />
+        Valider le mapping
+      </button>
+    </div>
+  );
+}
+
 function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
   const [selectedAuditId, setSelectedAuditId] = useState<number | null>(null);
   const selectedAudit = audits.find(a => a.id === selectedAuditId) ?? audits[0] ?? null;
@@ -883,12 +910,12 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         )}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
+                  );                })}              </tbody>
             </table>
           </div>
         )}
+        {/* Bouton Valider — actif uniquement si toutes les lignes sont "Validé" */}
+        {excelRows.length > 0 && <MappingValidateBar rows={excelRows} />}
       </div>
 
       {/* Section 2 — Vérification des Propriétés par Catégorie */}
