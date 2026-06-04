@@ -616,18 +616,41 @@ function PropsExcelDialog({
     const m = mappings[s.sheetName];
     return m.colCategorie && m.colsProprietes.length > 0;
   });
-
   const sheet = sheets[activeSheet];
   const mapping = mappings[sheet.sheetName];
 
+  function handleHeaderClick(sheetName: string, col: string, currentMapping: PropsSheetMapping) {
+    // 1er clic → catégorie, 2e clic sur catégorie → désélectionne, clic sur autre → propriété toggle
+    if (currentMapping.colCategorie === col) {
+      setMappings(prev => ({ ...prev, [sheetName]: { ...prev[sheetName], colCategorie: '' } }));
+    } else if (currentMapping.colsProprietes.includes(col)) {
+      toggleProp(sheetName, col);
+    } else if (!currentMapping.colCategorie) {
+      setMappings(prev => ({ ...prev, [sheetName]: { ...prev[sheetName], colCategorie: col } }));
+    } else {
+      toggleProp(sheetName, col);
+    }
+  }
+
+  function getColRole(col: string): 'categorie' | 'propriete' | 'none' {
+    if (mapping.colCategorie === col) return 'categorie';
+    if (mapping.colsProprietes.includes(col)) return 'propriete';
+    return 'none';
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-[#3b1f6e] rounded-t-2xl">
+        <div className="flex items-center justify-between px-6 py-4 bg-[#3b1f6e] rounded-t-2xl shrink-0">
           <div>
-            <h3 className="text-white font-bold text-base">Configurer le mapping des propriétés</h3>
-            <p className="text-purple-300 text-xs mt-0.5">Sélectionnez la colonne catégorie et les colonnes propriétés pour chaque onglet</p>
+            <h3 className="text-white font-bold text-base">Annotations automatiques — Propriétés à contrôler</h3>
+            <p className="text-purple-300 text-xs mt-0.5">
+              Cliquez sur un en-tête de colonne pour le désigner :&nbsp;
+              <span className="inline-flex items-center gap-1 bg-[#4e2d8a] text-purple-200 rounded px-1.5 py-0.5">■ Catégorie</span>
+              &nbsp;puis&nbsp;
+              <span className="inline-flex items-center gap-1 bg-emerald-700 text-emerald-100 rounded px-1.5 py-0.5">■ Propriété(s)</span>
+            </p>
           </div>
           <button onClick={onClose} className="text-purple-300 hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -650,99 +673,111 @@ function PropsExcelDialog({
             >
               {s.sheetName}
               {mappings[s.sheetName].colCategorie && mappings[s.sheetName].colsProprietes.length > 0 && (
-                <span className="ml-2 w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                <span className="ml-2 w-2 h-2 rounded-full bg-emerald-500 inline-block align-middle" />
               )}
             </button>
           ))}
         </div>
 
-        {/* Contenu onglet */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {/* 1 — Colonne catégorie */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
-              1 — Quelle colonne contient les catégories d&apos;objets ?
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {sheet.headers.map(h => (
-                <button
-                  key={h}
-                  onClick={() => setMappings(prev => ({ ...prev, [sheet.sheetName]: { ...prev[sheet.sheetName], colCategorie: h } }))}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                    mapping.colCategorie === h
-                      ? 'bg-[#3b1f6e] text-white border-[#3b1f6e]'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-purple-400 hover:text-purple-700'
-                  }`}
-                >
-                  {h}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Légende */}
+        <div className="flex items-center gap-6 px-6 py-2.5 bg-slate-50 border-b border-slate-100 shrink-0 text-xs text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-[#3b1f6e] inline-block" />
+            Catégorie d&apos;objet — 1 colonne
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-emerald-600 inline-block" />
+            Propriétés à contrôler — plusieurs colonnes possibles
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm bg-slate-200 inline-block" />
+            Non sélectionné — cliquer pour assigner
+          </span>
+        </div>
 
-          {/* 2 — Colonnes propriétés */}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
-              2 — Quelles colonnes contiennent les propriétés à contrôler ?
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {sheet.headers.filter(h => h !== mapping.colCategorie).map(h => (
-                <button
-                  key={h}
-                  onClick={() => toggleProp(sheet.sheetName, h)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                    mapping.colsProprietes.includes(h)
-                      ? 'bg-emerald-600 text-white border-emerald-600'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-400 hover:text-emerald-700'
-                  }`}
-                >
-                  {h}
-                  {mapping.colsProprietes.includes(h) && <span className="ml-1.5">✓</span>}
-                </button>
+        {/* Tableau interactif */}
+        <div className="flex-1 overflow-auto px-0 py-0">
+          <table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className="bg-slate-100 border-b border-r border-slate-200 px-3 py-2 text-slate-400 font-normal w-8 text-center">#</th>
+                {sheet.headers.map((h) => {
+                  const role = getColRole(h);
+                  return (
+                    <th
+                      key={h}
+                      onClick={() => handleHeaderClick(sheet.sheetName, h, mapping)}
+                      title={role === 'none' ? (mapping.colCategorie ? `Ajouter "${h}" comme propriété` : `Définir "${h}" comme catégorie`) : `Cliquer pour désélectionner "${h}"`}
+                      className={`border-b border-r border-slate-200 px-3 py-2.5 text-left font-bold cursor-pointer select-none whitespace-nowrap transition-colors ${
+                        role === 'categorie'
+                          ? 'bg-[#3b1f6e] text-white'
+                          : role === 'propriete'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-100 text-slate-600 hover:bg-purple-50 hover:text-purple-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {role === 'categorie' && <span className="text-purple-300 text-[10px]">CAT</span>}
+                        {role === 'propriete' && <span className="text-emerald-200 text-[10px]">PROP</span>}
+                        {h || <span className="italic text-slate-400">(vide)</span>}
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sheet.preview.map((row, ri) => (
+                <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                  <td className="border-b border-r border-slate-100 px-3 py-1.5 text-center text-slate-300 font-mono">{ri + 2}</td>
+                  {sheet.headers.map((h, ci) => {
+                    const role = getColRole(h);
+                    return (
+                      <td
+                        key={ci}
+                        className={`border-b border-r border-slate-100 px-3 py-1.5 ${
+                          role === 'categorie'
+                            ? 'bg-purple-50 text-[#3b1f6e] font-semibold'
+                            : role === 'propriete'
+                            ? 'bg-emerald-50 text-emerald-800'
+                            : 'text-slate-500'
+                        }`}
+                      >
+                        {row[ci] || <span className="text-slate-200">—</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
               ))}
-            </div>
-          </div>
-
-          {/* Aperçu */}
-          {mapping.colCategorie && mapping.colsProprietes.length > 0 && (
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Aperçu</label>
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left px-4 py-2 font-bold text-[#3b1f6e]">{mapping.colCategorie}</th>
-                      {mapping.colsProprietes.map(p => (
-                        <th key={p} className="text-left px-4 py-2 font-bold text-emerald-700">{p}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sheet.preview.map((row, ri) => {
-                      const catIdx = sheet.headers.indexOf(mapping.colCategorie);
-                      const propIdxs = mapping.colsProprietes.map(p => sheet.headers.indexOf(p));
-                      return (
-                        <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                          <td className="px-4 py-2 font-medium text-slate-700">{row[catIdx]}</td>
-                          {propIdxs.map((pi, pii) => (
-                            <td key={pii} className="px-4 py-2 text-slate-500">{row[pi] ?? '—'}</td>
-                          ))}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+              {/* Ligne indicatrice "..." */}
+              <tr>
+                <td className="px-3 py-1.5 text-center text-slate-300 italic text-[10px]">…</td>
+                {sheet.headers.map((_, ci) => (
+                  <td key={ci} className="px-3 py-1 text-slate-200 text-[10px] italic border-r border-slate-100">…</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between rounded-b-2xl">
-          <span className="text-xs text-slate-400">
-            {sheets.filter(s => mappings[s.sheetName].colCategorie && mappings[s.sheetName].colsProprietes.length > 0).length} / {sheets.length} onglet{sheets.length > 1 ? 's' : ''} configuré{sheets.length > 1 ? 's' : ''}
-          </span>
-          <div className="flex gap-3">
+        <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between rounded-b-2xl shrink-0">
+          <div className="text-xs text-slate-500 space-y-0.5">
+            <div>
+              {mapping.colCategorie
+                ? <span className="text-[#3b1f6e] font-semibold">Catégorie : {mapping.colCategorie}</span>
+                : <span className="text-slate-400">Aucune colonne catégorie sélectionnée</span>}
+            </div>
+            <div>
+              {mapping.colsProprietes.length > 0
+                ? <span className="text-emerald-700 font-semibold">{mapping.colsProprietes.length} propriété(s) : {mapping.colsProprietes.join(', ')}</span>
+                : <span className="text-slate-400">Aucune propriété sélectionnée</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-slate-400">
+              {sheets.filter(s => mappings[s.sheetName].colCategorie && mappings[s.sheetName].colsProprietes.length > 0).length} / {sheets.length} onglet{sheets.length > 1 ? 's' : ''} configuré{sheets.length > 1 ? 's' : ''}
+            </span>
             <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
               Annuler
             </button>
