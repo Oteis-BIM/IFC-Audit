@@ -917,10 +917,15 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     e.target.value = '';
     setPropsLoading(true);
     setPropsError(null);
-    try {
-      // Convertit en base64 pour usage ultérieur (extraction complète)
+    try {      // Convertit en base64 pour usage ultérieur (extraction complète)
       const ab = await file.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(ab)));
+      const uint8 = new Uint8Array(ab);
+      let binary = '';
+      const CHUNK = 8192;
+      for (let i = 0; i < uint8.length; i += CHUNK) {
+        binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
+      }
+      const b64 = btoa(binary);
       setPropsFileBase64(b64);
 
       const formData = new FormData();
