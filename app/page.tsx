@@ -549,12 +549,39 @@ async function callAiAnalysis(
     }
 
     const validated = Object.values(allResults).filter(v => v === 'Validé').length;
-    const invalid   = Object.values(allResults).filter(v => v.startsWith('Non validé')).length;
-    setStatus({ ok: true, msg: `Analyse terminée — ✓ ${validated} validé(s) · ✗ ${invalid} non validé(s) · ${rows.length} ligne(s) au total.` });
+    const invalid   = Object.values(allResults).filter(v => v.startsWith('Non validé')).length;    setStatus({ ok: true, msg: `Analyse terminée — ✓ ${validated} validé(s) · ✗ ${invalid} non validé(s) · ${rows.length} ligne(s) au total.` });
   } catch (err: unknown) {
     setStatus({ ok: false, msg: `Analyse IA échouée : ${err instanceof Error ? err.message : String(err)}` });
   } finally {
     setLoading(false);
+  }
+}
+
+// ── Analyse IA d'une seule ligne ──────────────────────────────────────────────
+async function analyzeRow(
+  row: ExcelMappingRow,
+  globalIdx: number,
+  setRows: React.Dispatch<React.SetStateAction<ExcelMappingRow[]>>,
+  setAnalyzingIdx: React.Dispatch<React.SetStateAction<number | null>>,
+) {
+  setAnalyzingIdx(globalIdx);
+  setRows(prev => prev.map((r, i) => i === globalIdx ? { ...r, validation: '' } : r));
+  try {
+    const res = await fetch('/api/validate-mapping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rows: [{ index: globalIdx, nomDuType: row.nomDuType, type: row.type, categorieMoa: row.categorieMoa }],
+      }),
+    });
+    if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
+    const data = await res.json();
+    const validation = (data.results?.[0]?.validation as string | undefined)?.trim() ?? 'Non analysé';
+    setRows(prev => prev.map((r, i) => i === globalIdx ? { ...r, validation } : r));
+  } catch {
+    setRows(prev => prev.map((r, i) => i === globalIdx ? { ...r, validation: 'Non analysé' } : r));
+  } finally {
+    setAnalyzingIdx(null);
   }
 }
 
@@ -573,6 +600,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   const [excelRows, setExcelRows]   = useState<ExcelMappingRow[]>([]);
   const [moaOptions, setMoaOptions] = useState<string[]>([]);
   const [aiLoading, setAiLoading]   = useState(false);
+  const [analyzingIdx, setAnalyzingIdx] = useState<number | null>(null);
 
   // Section 2 — propriétés par catégorie
   const [categoryProps, setCategoryProps] = useState<Record<string, string[]>>(DEFAULT_CATEGORY_PROPS);
@@ -779,22 +807,49 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         </span>
                       </td>                      {/* Col 3 — Catégorie MOA (éditable avec suggestions datalist) */}
                       <td className="px-5 py-2.5">
-                        <input
-                          type="text"
-                          list={`moa-options-${idx}`}
-                          value={row.categorieMoa}
-                          onChange={e => setExcelRows(prev => prev.map((r, i) =>
-                            i === idx ? { ...r, categorieMoa: e.target.value, validation: '' } : r
-                          ))}
-                          placeholder="Saisie libre ou choisir…"
-                          className="w-full text-xs border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-slate-300"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            list={`moa-options-${idx}`}
+                            value={row.categorieMoa}
+                            onChange={e => setExcelRows(prev => prev.map((r, i) =>
+                              i === idx ? { ...r, categorieMoa: e.target.value, validation: '' } : r
+                            ))}
+                            onBlur={e => {
+                              const val = e.target.value.trim();
+                              if (val && val !== row.categorieMoa) {
+                                analyzeRow({ ...row, categorieMoa: val }, idx, setExcelRows, setAnalyzingIdx);
+                              } else if (val && row.validation === '') {
+                                analyzeRow({ ...row, categorieMoa: val }, idx, setExcelRows, setAnalyzingIdx);
+                              }
+                            }}
+                            placeholder="Saisie libre ou choisir…"
+                            className="w-full text-xs border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder:text-slate-300"
+                          />
+                          <button
+                            onClick={() => analyzeRow(row, idx, setExcelRows, setAnalyzingIdx)}
+                            disabled={analyzingIdx !== null || !row.categorieMoa.trim()}
+                            title="Relancer l'analyse IA pour cette ligne"
+                            className="shrink-0 p-1.5 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-400 hover:text-blue-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {analyzingIdx === idx ? (
+                              <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                              </svg>
+                            ) : (
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
                         <datalist id={`moa-options-${idx}`}>
                           {moaOptions.map(opt => <option key={opt} value={opt} />)}
                         </datalist>
-                      </td>                      {/* Col 4 — Validation / Commentaires */}
+                      </td>{/* Col 4 — Validation / Commentaires */}
                       <td className="px-5 py-2.5 min-w-[220px]">
-                        {aiLoading && !row.validation ? (
+                        {(aiLoading && !row.validation) || analyzingIdx === idx ? (
                           <span className="text-xs text-slate-400 italic animate-pulse">Analyse…</span>
                         ) : isValide ? (
                           <span className="inline-flex items-center gap-1.5 text-emerald-600 text-xs font-semibold">
