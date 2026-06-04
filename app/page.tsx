@@ -585,28 +585,60 @@ async function analyzeRow(
   }
 }
 
-function MappingValidateBar({ rows }: { rows: ExcelMappingRow[] }) {
+function MappingValidateBar({ rows, onSave }: { rows: ExcelMappingRow[]; onSave: () => Promise<void> }) {
   const allValide = rows.every(r => r.validation === 'Validé');
   const countValide = rows.filter(r => r.validation === 'Validé').length;
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    setSaveError(null);
+    try {
+      await onSave();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 4000);
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60 rounded-b-2xl">
       <span className="text-xs text-slate-500">
-        {allValide
-          ? <span className="text-emerald-600 font-semibold">✓ Toutes les lignes sont validées</span>
-          : <span>{countValide} / {rows.length} ligne{rows.length > 1 ? 's' : ''} validée{rows.length > 1 ? 's' : ''}</span>
-        }
+        {saveError ? (
+          <span className="text-red-500 font-semibold">⚠ {saveError}</span>
+        ) : saved ? (
+          <span className="text-emerald-600 font-semibold">✓ Mapping enregistré dans Supabase</span>
+        ) : allValide ? (
+          <span className="text-emerald-600 font-semibold">✓ Toutes les lignes sont validées</span>
+        ) : (
+          <span>{countValide} / {rows.length} ligne{rows.length > 1 ? 's' : ''} validée{rows.length > 1 ? 's' : ''}</span>
+        )}
       </span>
       <button
-        disabled={!allValide}
+        disabled={!allValide || saving}
+        onClick={handleSave}
         className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm ${
-          allValide
+          allValide && !saving
             ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
             : 'bg-slate-200 text-slate-400 cursor-not-allowed'
         }`}
-        title={allValide ? 'Valider le mapping' : 'Toutes les lignes doivent être validées'}
+        title={allValide ? 'Enregistrer le mapping validé dans Supabase' : 'Toutes les lignes doivent être validées'}
       >
-        <CheckCircle className="h-4 w-4" />
-        Valider le mapping
+        {saving ? (
+          <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+          </svg>
+        ) : (
+          <CheckCircle className="h-4 w-4" />
+        )}
+        {saving ? 'Enregistrement…' : 'Valider le mapping'}
       </button>
     </div>
   );
@@ -671,11 +703,25 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       setImportStatus({ ok: false, msg: `Erreur réseau : ${err instanceof Error ? err.message : String(err)}` });
     }
   }, []);
-
   // ── Relancer l'analyse manuellement ─────────────────────────────────────
   const handleRerunAnalysis = useCallback(async () => {
     setImportStatus({ ok: true, msg: 'Relance de l\'analyse IA…' });
     await callAiAnalysis(excelRows, setExcelRows, setAiLoading, setImportStatus);
+  }, [excelRows]);
+
+  // ── Enregistrement du mapping validé dans Supabase ───────────────────────
+  const handleSaveMapping = useCallback(async () => {
+    const value = JSON.stringify(excelRows.map(r => ({
+      nomDuType:    r.nomDuType,
+      type:         r.type,
+      categorieMoa: r.categorieMoa,
+      validation:   r.validation,
+    })));
+    const { error } = await supabase.from('audit_config').upsert(
+      { key: 'ifc_mapping_validated', value, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    if (error) throw new Error(error.message);
   }, [excelRows]);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
@@ -915,7 +961,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           </div>
         )}
         {/* Bouton Valider — actif uniquement si toutes les lignes sont "Validé" */}
-        {excelRows.length > 0 && <MappingValidateBar rows={excelRows} />}
+        {excelRows.length > 0 && <MappingValidateBar rows={excelRows} onSave={handleSaveMapping} />}
       </div>
 
       {/* Section 2 — Vérification des Propriétés par Catégorie */}
