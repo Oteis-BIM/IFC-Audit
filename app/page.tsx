@@ -498,7 +498,9 @@ type ExcelMappingRow = {
   validation:   string; // résultat IA : "Validé" | "Non validé : ..."
 };
 
-// ── Analyse IA : appel /api/llm sur les lignes courantes ──────────────────
+// ── Analyse IA : appel /api/validate-mapping par batch de 15 lignes ──────
+const BATCH_SIZE = 15;
+
 async function callAiAnalysis(
   rows: ExcelMappingRow[],
   setRows: React.Dispatch<React.SetStateAction<ExcelMappingRow[]>>,
@@ -507,45 +509,50 @@ async function callAiAnalysis(
 ) {
   if (rows.length === 0) return;
   setLoading(true);
-  // Réinitialise la colonne validation pendant l'analyse
   setRows(prev => prev.map(r => ({ ...r, validation: '' })));
 
   try {
-    const res = await fetch('/api/llm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: `Tu es un expert BIM chargé de vérifier la cohérence entre des types d'objets IFC et leur catégorie MOA (Maîtrise d'Ouvrage, basée sur la classification TND française du bâtiment).
-
-Pour chaque ligne, réponds UNIQUEMENT par un objet JSON strict de la forme :
-{ "0": "Validé", "1": "Non validé : [raison courte]", "2": "Validé", ... }
-
-Règles :
-- Réponds "Validé" si le "Nom du type" et le "Type" sont sémantiquement cohérents avec la "Catégorie MOA" (ex: "Chemin de câbles avec raccords:CDC_Courant Faible" + "Type A" → "Chemins de câbles" = Validé).
-- Réponds "Non validé : [raison en 1 phrase]" si la catégorie MOA ne correspond pas au type d'objet.
-- Ne renvoie QUE le JSON, sans markdown ni texte autour.
-
-Lignes (index | Nom du type | Type | Catégorie MOA) :
-${rows.map((r, i) => `${i} | ${r.nomDuType} | ${r.type} | ${r.categorieMoa}`).join('\n')}`,
-      }),
-    });
-
-    const d = await res.json();
-    const raw = d.response ?? d.message ?? d.content ?? '';
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-
-    if (jsonMatch) {
-      const aiResults: Record<string, string> = JSON.parse(jsonMatch[0]);
-      setRows(prev => prev.map((r, i) => ({
-        ...r,
-        validation: aiResults[String(i)] ?? '',
-      })));
-      setStatus({ ok: true, msg: `Analyse IA terminée — ${rows.length} ligne(s) traitée(s).` });
-    } else {
-      setStatus({ ok: false, msg: 'Analyse IA : réponse non parsable. Relancez l\'analyse.' });
+    // Découpe en batches
+    const batches: { index: number; nomDuType: string; type: string; categorieMoa: string }[][] = [];
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      batches.push(
+        rows.slice(i, i + BATCH_SIZE).map((r, j) => ({
+          index: i + j,
+          nomDuType: r.nomDuType,
+          type: r.type,
+          categorieMoa: r.categorieMoa,
+        }))
+      );
     }
-  } catch {
-    setStatus({ ok: false, msg: 'Analyse IA échouée. Vérifiez la connexion et relancez.' });
+
+    // Appels séquentiels pour ne pas saturer l'API
+    const allResults: Record<number, string> = {};
+    for (let b = 0; b < batches.length; b++) {
+      setStatus({ ok: true, msg: `Analyse IA en cours… batch ${b + 1}/${batches.length}` });
+      const res = await fetch('/api/validate-mapping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: batches[b] }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? `Erreur HTTP ${res.status} (batch ${b + 1})`);
+      }
+      const data = await res.json();
+      for (const r of (data.results ?? [])) {
+        allResults[r.index] = r.validation;
+      }
+      // Mise à jour progressive du tableau au fil des batches
+      setRows(prev => prev.map((row, i) =>
+        allResults[i] !== undefined ? { ...row, validation: allResults[i] } : row
+      ));
+    }
+
+    const validated = Object.values(allResults).filter(v => v === 'Validé').length;
+    const invalid   = Object.values(allResults).filter(v => v.startsWith('Non validé')).length;
+    setStatus({ ok: true, msg: `Analyse terminée — ✓ ${validated} validé(s) · ✗ ${invalid} non validé(s) · ${rows.length} ligne(s) au total.` });
+  } catch (err: unknown) {
+    setStatus({ ok: false, msg: `Analyse IA échouée : ${err instanceof Error ? err.message : String(err)}` });
   } finally {
     setLoading(false);
   }
