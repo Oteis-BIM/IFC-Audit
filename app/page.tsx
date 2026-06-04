@@ -945,9 +945,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     setPropsError(null);
     try {
       const merged: Record<string, Set<string>> = {};
-      for (const sm of sheetMappings) {
-        const res = await fetch('/api/parse-props-excel', {
-          method: 'PUT',
+      for (const sm of sheetMappings) {        const res = await fetch('/api/parse-props-excel', {
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileBase64: propsFileBase64, ...sm }),
         });
