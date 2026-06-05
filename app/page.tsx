@@ -498,9 +498,22 @@ type ExcelMappingRow = {
   validation:   string;
 };
 
-// Types pour le dialogue import propriétés Excel
-type PropsSheetInfo = { sheetName: string; headers: string[]; preview: string[][] };
+// Types pour le dialogue import propriétés Excel (conservé pour compatibilité format large)
+type PropsSheetInfo = { sheetName: string; categoryName?: string; categoryNameNormalised?: string; headers: string[]; preview: string[][] };
 type PropsSheetMapping = { colCategorie: string; colsProprietes: string[] };
+
+// Catégorie enrichie issue du fichier Excel de propriétés
+type PropsCategoryData = {
+  name: string;            // ex: "Chemins de câbles"
+  nameNormalised: string;  // ex: "cheminsdecobles"
+  ifcClasses: string[];    // ex: ["IfcCableCarrierSegment IfcCableCarrierFitting"]
+  properties: string[];    // ex: ["INF_Type", "GMAO_Marque", …]
+};
+
+// Helper : normalise pour comparaison (minuscules, sans accents, sans ponctuation)
+function normalise(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 // ── Analyse IA : appel /api/validate-mapping par batch de 15 lignes ──────
 const BATCH_SIZE = 15;
@@ -940,9 +953,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   // ── Import Excel propriétés MOA ───────────────────────────────────────────
   const propsFileInputRef = useRef<HTMLInputElement>(null);  const [propsLoading, setPropsLoading] = useState(false);
   const [propsError, setPropsError] = useState<string | null>(null);
-  const [customCategoryProps, setCustomCategoryProps] = useState<Record<string, string[]> | null>(null);
+  const [propsCategories, setPropsCategories] = useState<PropsCategoryData[] | null>(null);
 
-  // ── Import direct : 1ère colonne = catégorie, colonnes suivantes = propriétés ──
+  // ── Import direct : détection auto du format (long ou large) ──────────────
   const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -950,53 +963,49 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     setPropsLoading(true);
     setPropsError(null);
     try {
-      // Étape 1 — parser le fichier pour récupérer les feuilles et en-têtes
       const formData = new FormData();
       formData.append('file', file);
-      const parseRes = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
-      const parseData = await parseRes.json();
-      if (!parseRes.ok) throw new Error(parseData.error ?? `Erreur ${parseRes.status}`);
+      const res = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
 
-      // Étape 2 — convertir en base64 pour les appels d'extraction
-      const ab = await file.arrayBuffer();
-      const uint8 = new Uint8Array(ab);
-      let binary = '';
-      const CHUNK = 8192;
-      for (let i = 0; i < uint8.length; i += CHUNK) {
-        binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
-      }
-      const b64 = btoa(binary);
-
-      // Étape 3 — pour chaque feuille : col[0] = catégorie, col[1..] = propriétés
-      const sheets: PropsSheetInfo[] = parseData.sheets ?? [];
-      const merged: Record<string, Set<string>> = {};
-
-      for (const sheet of sheets) {
-        if (sheet.headers.length < 2) continue;
-        const colCategorie = sheet.headers[0];
-        const colsProprietes = sheet.headers.slice(1);
-
-        const extractRes = await fetch('/api/parse-props-excel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileBase64: b64, sheetName: sheet.sheetName, colCategorie, colsProprietes }),
-        });
-        const extractData = await extractRes.json();
-        if (!extractRes.ok) throw new Error(extractData.error ?? `Erreur ${extractRes.status}`);
-
-        for (const [cat, props] of Object.entries(extractData.mapping as Record<string, string[]>)) {
-          if (!merged[cat]) merged[cat] = new Set();
-          (props as string[]).forEach(p => merged[cat].add(p));
-        }
-      }
-
-      const result: Record<string, string[]> = {};
-      for (const [cat, props] of Object.entries(merged)) result[cat] = Array.from(props);
-
-      if (Object.keys(result).length === 0) {
-        setPropsError('Aucune donnée trouvée — vérifiez que la 1ère colonne contient les catégories.');
+      if (data.format === 'long') {
+        // Format long : l'API retourne directement les catégories enrichies
+        setPropsCategories(data.categories ?? []);
       } else {
-        setCustomCategoryProps(result);
+        // Format large : 1 onglet = 1 catégorie, toutes les colonnes = propriétés
+        const ab = await file.arrayBuffer();
+        const uint8 = new Uint8Array(ab);
+        let binary = '';
+        const CHUNK = 8192;
+        for (let i = 0; i < uint8.length; i += CHUNK) binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
+        const b64 = btoa(binary);
+
+        const sheets: PropsSheetInfo[] = data.sheets ?? [];
+        const categories: PropsCategoryData[] = [];
+
+        for (const sheet of sheets) {
+          if (sheet.headers.length < 2) continue;
+          // Col 0 = clé d'identification (ignorée), col 1..N = propriétés
+          const colsProprietes = sheet.headers.slice(1);
+          const extractRes = await fetch('/api/parse-props-excel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileBase64: b64, sheetName: sheet.sheetName, colCategorie: sheet.headers[0], colsProprietes }),
+          });
+          const extractData = await extractRes.json();
+          if (!extractRes.ok) throw new Error(extractData.error ?? `Erreur ${extractRes.status}`);
+
+          categories.push({
+            name: sheet.categoryName ?? sheet.sheetName,
+            nameNormalised: sheet.categoryNameNormalised ?? normalise(sheet.sheetName),
+            ifcClasses: [],
+            properties: Object.values(extractData.mapping as Record<string, string[]>).flat().filter((v, i, a) => a.indexOf(v) === i),
+          });
+        }
+
+        if (categories.length === 0) throw new Error('Aucune donnée trouvée dans le fichier.');
+        setPropsCategories(categories);
       }
     } catch (err: unknown) {
       setPropsError(err instanceof Error ? err.message : String(err));
@@ -1277,78 +1286,87 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             </button>
           </div>
         </div>        {/* ── Cartes par catégorie issues du fichier Excel propriétés ── */}
-        {customCategoryProps && Object.keys(customCategoryProps).length > 0 && (
-          <div className="space-y-4">
+        {propsCategories && propsCategories.length > 0 && (
+          <div className="space-y-6">
 
             {/* Barre d'en-tête globale */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-[#3b1f6e] uppercase tracking-widest">Propriétés MOA importées</span>
               <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                {Object.keys(customCategoryProps).length} catégorie{Object.keys(customCategoryProps).length > 1 ? 's' : ''}
+                {propsCategories.length} catégorie{propsCategories.length > 1 ? 's' : ''}
               </span>
               <button
-                onClick={() => setCustomCategoryProps(null)}
+                onClick={() => setPropsCategories(null)}
                 className="ml-auto text-xs text-slate-400 hover:text-red-400 transition-colors"
               >✕ Effacer</button>
             </div>
 
             {/* Une carte par catégorie */}
-            {Object.entries(customCategoryProps).map(([cat, props]) => {
-              // ── Étape 1 : retrouver les types IFC liés à cette catégorie MOA ──
-              // On croise avec excelRows (tableau de mapping chargé en section 1)
-              const catObjects = excelRows.filter(r => r.categorieMoa === cat);
+            {propsCategories.map(catData => {
+              const { name, nameNormalised, ifcClasses, properties } = catData;
 
-              // ── Étape 2 : filtre "manquants seulement" ──
-              const missingOnly = filterMissing[cat] ?? false;
-              const displayed = missingOnly
-                ? catObjects.filter(obj =>
-                    props.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante')
-                  )
-                : catObjects;
+              // ── Croiser avec le mapping : cherche les lignes dont la categorieMoa
+              //    correspond à ce nom de catégorie (comparaison normalisée)
+              const matchedRows = excelRows.filter(r =>
+                normalise(r.categorieMoa) === nameNormalised ||
+                normalise(r.categorieMoa).includes(nameNormalised) ||
+                nameNormalised.includes(normalise(r.categorieMoa))
+              );
 
-              // ── Étape 3 : calcul du taux de conformité simulé ──
-              const totalChecks = catObjects.length * props.length;
-              const missingCount = catObjects.reduce(
-                (acc, obj) => acc + props.filter(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante').length,
+              const missingOnly = filterMissing[name] ?? false;
+              const displayedRows = missingOnly
+                ? matchedRows.filter(obj => properties.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
+                : matchedRows;
+
+              const totalChecks  = matchedRows.length * properties.length;
+              const missingCount = matchedRows.reduce(
+                (acc, obj) => acc + properties.filter(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante').length,
                 0
               );
-              const conformRate = totalChecks > 0
-                ? Math.round(((totalChecks - missingCount) / totalChecks) * 100)
-                : null;
-              const rateColor = conformRate === null ? 'text-slate-400'
-                : conformRate >= 80 ? 'text-emerald-600'
-                : conformRate >= 60 ? 'text-orange-500'
-                : 'text-red-500';
+              const conformRate = totalChecks > 0 ? Math.round(((totalChecks - missingCount) / totalChecks) * 100) : null;
+              const rateColor   = conformRate === null ? 'text-white/60' : conformRate >= 80 ? 'text-emerald-300' : conformRate >= 60 ? 'text-orange-300' : 'text-red-300';
 
               return (
-                <div key={cat} className="bg-white rounded-2xl border border-purple-100 shadow-sm overflow-hidden">
+                <div key={name} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
-                  {/* ── En-tête de carte ── */}
-                  <div className="flex items-center justify-between px-5 py-3 border-b border-purple-100 bg-purple-50/40">
+                  {/* ── En-tête sombre (inspiré de l'image Excel) ── */}
+                  <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-1 h-6 bg-[#3b1f6e] rounded-full shrink-0" />
-                      <span className="font-bold text-slate-800">{cat}</span>
-                      {catObjects.length > 0 && (
-                        <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                          {catObjects.length} type{catObjects.length > 1 ? 's' : ''} IFC
+                      <div>
+                        <div className="text-white font-bold text-sm leading-tight">{name}</div>
+                        {ifcClasses.length > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            {ifcClasses.map(cls => (
+                              <span key={cls} className="text-[10px] font-mono text-indigo-300 bg-indigo-900/60 px-2 py-0.5 rounded">
+                                {cls}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 ml-2">
+                        <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
+                          {properties.length} propriété{properties.length > 1 ? 's' : ''}
                         </span>
-                      )}
-                      <span className="text-xs text-[#3b1f6e] bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
-                        {props.length} propriété{props.length > 1 ? 's' : ''}
-                      </span>
+                        {matchedRows.length > 0 && (
+                          <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
+                            {matchedRows.length} type{matchedRows.length > 1 ? 's' : ''} IFC
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       {conformRate !== null && (
-                        <span className={`text-sm font-black ${rateColor}`} title="Taux de conformité (simulé)">
+                        <span className={`text-lg font-black ${rateColor}`} title="Taux de conformité (simulé)">
                           {conformRate}%
                         </span>
                       )}
                       <button
-                        onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                        onClick={() => setFilterMissing(prev => ({ ...prev, [name]: !prev[name] }))}
                         className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                           missingOnly
-                            ? 'bg-orange-50 border-orange-300 text-orange-600'
-                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
+                            ? 'bg-orange-500/20 border-orange-400 text-orange-300'
+                            : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10 hover:text-white/80'
                         }`}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -1359,109 +1377,125 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                     </div>
                   </div>
 
-                  {/* ── Corps : tableau types IFC × propriétés ── */}
-                  {catObjects.length === 0 ? (
-                    <div className="flex items-center gap-3 px-5 py-4 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
+                  {/* ── Avertissement si pas de types dans le mapping ── */}
+                  {matchedRows.length === 0 && (
+                    <div className="flex items-center gap-3 px-5 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
                       <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      Aucun type IFC associé à &quot;{cat}&quot; dans le mapping. Chargez le fichier de mappage (section ci-dessus) et assignez cette catégorie MOA.
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200">
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[200px]">Nom du type</th>
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[130px]">Type IFC</th>
-                            {props.map(p => (
-                              <th key={p} className="text-left px-3 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[110px]">{p}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {displayed.map((obj, oi) => (
-                            <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-purple-50/20 transition-colors`}>
-                              <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug">
-                                {obj.nomDuType || <span className="text-slate-300 italic">—</span>}
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className="inline-block bg-blue-50 text-blue-700 text-[11px] font-semibold px-2.5 py-0.5 rounded-full font-mono">
-                                  {obj.type || '—'}
-                                </span>
-                              </td>
-                              {props.map(p => {
-                                const status = mockCellStatus(obj.type || obj.nomDuType, p);
-                                return (
-                                  <td key={p} className="px-3 py-2.5">
-                                    {status === 'Remplie' ? (
-                                      <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                                        <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Remplie
-                                      </span>
-                                    ) : (
-                                      <span className="flex items-center gap-1.5 text-red-500 font-semibold">
-                                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                          <circle cx="12" cy="12" r="10" />
-                                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 9l-6 6M9 9l6 6" />
-                                        </svg>
-                                        Manquante
-                                      </span>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                          {displayed.length === 0 && catObjects.length > 0 && (
-                            <tr>
-                              <td colSpan={2 + props.length} className="text-center py-6 text-slate-400 italic text-xs">
-                                Aucun objet avec des propriétés manquantes.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                      <span>
+                        Aucun type IFC associé à <strong>&quot;{name}&quot;</strong> dans le mapping.
+                        Chargez le fichier de mappage (section ci-dessus) et assignez la catégorie MOA correspondante.
+                      </span>
                     </div>
                   )}
 
-                  {/* ── Pied de carte : gestion des propriétés ── */}
-                  <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                  {/* ── Tableau : lignes = types d'objets, colonnes = propriétés ── */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        {/* Ligne 1 : colonnes de propriétés groupées */}
+                        <tr className="bg-slate-800 text-white">
+                          <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[200px] border-r border-slate-700">
+                            Nom du type
+                          </th>
+                          <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[120px] border-r border-slate-700">
+                            Type IFC
+                          </th>
+                          {properties.map(p => (
+                            <th key={p} className="text-center px-3 py-2 font-semibold text-slate-200 text-[10px] min-w-[90px] border-r border-slate-700 leading-tight">
+                              {p}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayedRows.map((obj, oi) => (
+                          <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-indigo-50/30 transition-colors`}>
+                            <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug border-r border-slate-100">
+                              {obj.nomDuType || <span className="text-slate-300 italic">—</span>}
+                            </td>
+                            <td className="px-4 py-2.5 border-r border-slate-100">
+                              <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">
+                                {obj.type || '—'}
+                              </span>
+                            </td>
+                            {properties.map(p => {
+                              const status = mockCellStatus(obj.type || obj.nomDuType, p);
+                              return (
+                                <td key={p} className="px-3 py-2.5 text-center border-r border-slate-100">
+                                  {status === 'Remplie' ? (
+                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto" title="Remplie">
+                                      <CheckCircle className="h-3.5 w-3.5" />
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto" title="Manquante">
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                        {displayedRows.length === 0 && matchedRows.length > 0 && (
+                          <tr>
+                            <td colSpan={2 + properties.length} className="text-center py-6 text-slate-400 italic text-xs">
+                              Aucun objet avec des propriétés manquantes.
+                            </td>
+                          </tr>
+                        )}
+                        {matchedRows.length === 0 && (
+                          <tr>
+                            <td colSpan={2 + properties.length} className="py-0" />
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* ── Pied de carte : liste des propriétés attendues (éditable) ── */}
+                  <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés :</span>
-                    {props.map(p => (
-                      <span key={p} className="inline-flex items-center gap-1 bg-white border border-purple-200 text-[#3b1f6e] text-[11px] font-medium px-2 py-0.5 rounded-full">
+                    {properties.map(p => (
+                      <span key={p} className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-700 text-[11px] font-medium px-2 py-0.5 rounded-full">
                         {p}
                         <button
-                          onClick={() => setCustomCategoryProps(prev => {
-                            if (!prev) return prev;
-                            const updated = prev[cat].filter(x => x !== p);
-                            if (updated.length === 0) {
-                              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                              const { [cat]: _removed, ...rest } = prev;
-                              return Object.keys(rest).length === 0 ? null : rest;
-                            }
-                            return { ...prev, [cat]: updated };
-                          })}
-                          className="text-purple-300 hover:text-red-400 ml-0.5 transition-colors"
+                          onClick={() => setPropsCategories(prev =>
+                            prev ? prev.map(c => c.name === name
+                              ? { ...c, properties: c.properties.filter(x => x !== p) }
+                              : c
+                            ).filter(c => c.properties.length > 0)
+                            : prev
+                          )}
+                          className="text-indigo-300 hover:text-red-400 ml-0.5 transition-colors"
                           title="Retirer cette propriété"
                         >×</button>
                       </span>
                     ))}
                     <button
                       onClick={() => {
-                        const name = prompt(`Nouvelle propriété pour "${cat}" :`);
-                        if (name?.trim()) setCustomCategoryProps(prev =>
-                          prev ? { ...prev, [cat]: [...(prev[cat] ?? []), name.trim()] } : prev
+                        const newProp = prompt(`Nouvelle propriété pour "${name}" :`);
+                        if (newProp?.trim()) setPropsCategories(prev =>
+                          prev ? prev.map(c => c.name === name
+                            ? { ...c, properties: [...c.properties, newProp.trim()] }
+                            : c
+                          ) : prev
                         );
                       }}
-                      className="text-[11px] text-purple-500 hover:text-purple-700 font-semibold border border-dashed border-purple-300 px-2 py-0.5 rounded-full hover:bg-purple-50 transition-colors"
+                      className="text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold border border-dashed border-indigo-300 px-2 py-0.5 rounded-full hover:bg-indigo-50 transition-colors"
                     >+ Ajouter</button>
                   </div>
                 </div>
               );
             })}
           </div>
-        )}        {/* Bloc legacy — affiché uniquement si aucun fichier Excel propriétés n'est chargé */}
-        {!customCategoryProps && <div className="space-y-4">
+        )}
+
+        {/* Bloc legacy — affiché uniquement si aucun fichier Excel propriétés n'est chargé */}
+        {!propsCategories && <div className="space-y-4">
           {categories.map(cat => {
             const props = categoryProps[cat] ?? [];
             const ifcTypes = mappingRows.filter(r => r.category === cat && r.rule !== 'Excluded').map(r => r.ifcType);
