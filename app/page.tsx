@@ -938,21 +938,26 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   }, [excelRows]);
 
   // ── Import Excel propriétés MOA ───────────────────────────────────────────
-  const propsFileInputRef = useRef<HTMLInputElement>(null);
-  const [propsSheets, setPropsSheets] = useState<PropsSheetInfo[] | null>(null);
-  const [propsFileBase64, setPropsFileBase64] = useState<string>('');
-  const [propsDialogOpen, setPropsDialogOpen] = useState(false);
-  const [propsLoading, setPropsLoading] = useState(false);
+  const propsFileInputRef = useRef<HTMLInputElement>(null);  const [propsLoading, setPropsLoading] = useState(false);
   const [propsError, setPropsError] = useState<string | null>(null);
   const [customCategoryProps, setCustomCategoryProps] = useState<Record<string, string[]> | null>(null);
 
+  // ── Import direct : 1ère colonne = catégorie, colonnes suivantes = propriétés ──
   const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
     setPropsLoading(true);
     setPropsError(null);
-    try {      // Convertit en base64 pour usage ultérieur (extraction complète)
+    try {
+      // Étape 1 — parser le fichier pour récupérer les feuilles et en-têtes
+      const formData = new FormData();
+      formData.append('file', file);
+      const parseRes = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
+      const parseData = await parseRes.json();
+      if (!parseRes.ok) throw new Error(parseData.error ?? `Erreur ${parseRes.status}`);
+
+      // Étape 2 — convertir en base64 pour les appels d'extraction
       const ab = await file.arrayBuffer();
       const uint8 = new Uint8Array(ab);
       let binary = '';
@@ -961,51 +966,44 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
       }
       const b64 = btoa(binary);
-      setPropsFileBase64(b64);
 
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-      setPropsSheets(data.sheets);
-      setPropsDialogOpen(true);
+      // Étape 3 — pour chaque feuille : col[0] = catégorie, col[1..] = propriétés
+      const sheets: PropsSheetInfo[] = parseData.sheets ?? [];
+      const merged: Record<string, Set<string>> = {};
+
+      for (const sheet of sheets) {
+        if (sheet.headers.length < 2) continue;
+        const colCategorie = sheet.headers[0];
+        const colsProprietes = sheet.headers.slice(1);
+
+        const extractRes = await fetch('/api/parse-props-excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileBase64: b64, sheetName: sheet.sheetName, colCategorie, colsProprietes }),
+        });
+        const extractData = await extractRes.json();
+        if (!extractRes.ok) throw new Error(extractData.error ?? `Erreur ${extractRes.status}`);
+
+        for (const [cat, props] of Object.entries(extractData.mapping as Record<string, string[]>)) {
+          if (!merged[cat]) merged[cat] = new Set();
+          (props as string[]).forEach(p => merged[cat].add(p));
+        }
+      }
+
+      const result: Record<string, string[]> = {};
+      for (const [cat, props] of Object.entries(merged)) result[cat] = Array.from(props);
+
+      if (Object.keys(result).length === 0) {
+        setPropsError('Aucune donnée trouvée — vérifiez que la 1ère colonne contient les catégories.');
+      } else {
+        setCustomCategoryProps(result);
+      }
     } catch (err: unknown) {
       setPropsError(err instanceof Error ? err.message : String(err));
     } finally {
       setPropsLoading(false);
     }
   }, []);
-
-  const handlePropsDialogConfirm = useCallback(async (
-    sheetMappings: { sheetName: string; colCategorie: string; colsProprietes: string[] }[]
-  ) => {
-    setPropsDialogOpen(false);
-    setPropsLoading(true);
-    setPropsError(null);
-    try {
-      const merged: Record<string, Set<string>> = {};
-      for (const sm of sheetMappings) {        const res = await fetch('/api/parse-props-excel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileBase64: propsFileBase64, ...sm }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
-        for (const [cat, props] of Object.entries(data.mapping as Record<string, string[]>)) {
-          if (!merged[cat]) merged[cat] = new Set();
-          props.forEach(p => merged[cat].add(p));
-        }
-      }
-      const result: Record<string, string[]> = {};
-      for (const [cat, props] of Object.entries(merged)) result[cat] = Array.from(props);
-      setCustomCategoryProps(result);
-    } catch (err: unknown) {
-      setPropsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPropsLoading(false);
-    }
-  }, [propsFileBase64]);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
 
@@ -1278,16 +1276,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               Charger fichier Excel
             </button>
           </div>
-        </div>
-
-        {/* Dialogue de configuration du mapping */}
-        {propsDialogOpen && propsSheets && (
-          <PropsExcelDialog
-            sheets={propsSheets}
-            onConfirm={handlePropsDialogConfirm}
-            onClose={() => setPropsDialogOpen(false)}
-          />
-        )}        {/* ── Cartes par catégorie issues du fichier Excel propriétés ── */}
+        </div>        {/* ── Cartes par catégorie issues du fichier Excel propriétés ── */}
         {customCategoryProps && Object.keys(customCategoryProps).length > 0 && (
           <div className="space-y-4">
 
