@@ -822,13 +822,12 @@ function PropsExcelDialog({
   );
 }
 
-function MappingValidateBar({ rows, onSave }: { rows: ExcelMappingRow[]; onSave: () => Promise<void> }) {
+function MappingValidateBar({ rows, onSave, onCheckProps }: { rows: ExcelMappingRow[]; onSave: () => Promise<void>; onCheckProps?: () => Promise<void> }) {
   const allValide = rows.every(r => r.validation === 'Validé');
   const countValide = rows.filter(r => r.validation === 'Validé').length;
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
   async function handleSave() {
     setSaving(true);
     setSaved(false);
@@ -837,6 +836,8 @@ function MappingValidateBar({ rows, onSave }: { rows: ExcelMappingRow[]; onSave:
       await onSave();
       setSaved(true);
       setTimeout(() => setSaved(false), 4000);
+      // Lance automatiquement la vérification IFC des propriétés
+      if (onCheckProps) await onCheckProps();
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -850,7 +851,7 @@ function MappingValidateBar({ rows, onSave }: { rows: ExcelMappingRow[]; onSave:
         {saveError ? (
           <span className="text-red-500 font-semibold">⚠ {saveError}</span>
         ) : saved ? (
-          <span className="text-emerald-600 font-semibold">✓ Mapping enregistré dans Supabase</span>
+          <span className="text-emerald-600 font-semibold">✓ Mapping enregistré — vérification IFC en cours…</span>
         ) : allValide ? (
           <span className="text-emerald-600 font-semibold">✓ Toutes les lignes sont validées</span>
         ) : (
@@ -865,7 +866,7 @@ function MappingValidateBar({ rows, onSave }: { rows: ExcelMappingRow[]; onSave:
             ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
             : 'bg-slate-200 text-slate-400 cursor-not-allowed'
         }`}
-        title={allValide ? 'Enregistrer le mapping validé dans Supabase' : 'Toutes les lignes doivent être validées'}
+        title={allValide ? 'Enregistrer le mapping et vérifier les propriétés IFC' : 'Toutes les lignes doivent être validées'}
       >
         {saving ? (
           <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -1335,11 +1336,10 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           </div>
         )}
         {/* Bouton Valider — actif uniquement si toutes les lignes sont "Validé" */}
-        {excelRows.length > 0 && <MappingValidateBar rows={excelRows} onSave={handleSaveMapping} />}
+        {excelRows.length > 0 && <MappingValidateBar rows={excelRows} onSave={handleSaveMapping} onCheckProps={handleCheckIFCProps} />}
       </div>      {/* Section 2 — Vérification des Propriétés par Catégorie */}      <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-slate-800">Vérification des Propriétés par Catégorie</h3>
-          <div className="flex items-center gap-3 flex-wrap">
+          <h3 className="text-xl font-bold text-slate-800">Vérification des Propriétés par Catégorie</h3>          <div className="flex items-center gap-3 flex-wrap">
             {propsError && <span className="text-xs text-red-500">{propsError}</span>}
             {propCheckError && <span className="text-xs text-red-500">{propCheckError}</span>}
             {propsLoading && (
@@ -1357,40 +1357,11 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
                 </svg>
-                Lecture du fichier IFC…
+                Vérification IFC en cours…
               </span>
             )}
-            {/* Bouton vérification IFC */}
-            {excelRows.length > 0 && propsCategories && propsCategories.length > 0 && (
-              <button
-                onClick={handleCheckIFCProps}
-                disabled={propCheckLoading || !selectedAudit}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                title={!selectedAudit ? 'Sélectionnez une maquette IFC' : 'Vérifier les propriétés dans le fichier IFC'}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Vérifier dans le fichier IFC
-              </button>
-            )}
-            {/* Résumé résultats */}
-            {Object.keys(propCheckResults).length > 0 && (
-              <button onClick={() => { setPropCheckResults({}); }} className="text-xs text-slate-400 hover:text-red-400 transition-colors" title="Effacer les résultats">
-                ✕ Effacer résultats
-              </button>
-            )}
+            {/* Input caché conservé pour compatibilité */}
             <input ref={propsFileInputRef} type="file" accept=".xlsx,.xls" onChange={handlePropsExcelImport} className="hidden" />
-            <button
-              onClick={() => propsFileInputRef.current?.click()}
-              disabled={propsLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-[#3b1f6e] hover:bg-[#4e2d8a] text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Charger fichier propriétés (Excel)
-            </button>
           </div>
         </div>{(() => {
           // ── Catégories MOA issues du mapping Excel ──────────────────────────
