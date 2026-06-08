@@ -1143,9 +1143,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Nom du type</th>
-                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[18%]">Composants Solibri</th>
+              <thead>                <tr className="bg-slate-50 border-b border-slate-200">                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[18%]">Composants Solibri</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Nom du type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[14%]">Type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Catégorie MOA</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation / Commentaires</th>
@@ -1155,15 +1154,15 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                 {excelRows.map((row, idx) => {
                   const isNonValide = row.validation.startsWith('Non validé');
                   const isValide    = row.validation === 'Validé';
-                  return (
-                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/20 transition-colors`}>                      {/* Col 1 — Nom du type */}
-                      <td className="px-5 py-2.5 text-xs text-slate-800 font-medium leading-snug">
-                        {row.nomDuType || <span className="text-slate-300 italic">—</span>}
-                      </td>
-
-                      {/* Col 2 — Composants Solibri */}
+                  return (                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/20 transition-colors`}>
+                      {/* Col 1 — Composants Solibri */}
                       <td className="px-5 py-2.5 text-xs text-slate-600 leading-snug">
                         {row.composant || <span className="text-slate-300 italic">—</span>}
+                      </td>
+
+                      {/* Col 2 — Nom du type */}
+                      <td className="px-5 py-2.5 text-xs text-slate-800 font-medium leading-snug">
+                        {row.nomDuType || <span className="text-slate-300 italic">—</span>}
                       </td>
 
                       {/* Col 3 — Type */}
@@ -1270,13 +1269,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                 Chargement…
               </span>
             )}
-            <input
-              ref={propsFileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handlePropsExcelImport}
-              className="hidden"
-            />
+            <input ref={propsFileInputRef} type="file" accept=".xlsx,.xls" onChange={handlePropsExcelImport} className="hidden" />
             <button
               onClick={() => propsFileInputRef.current?.click()}
               disabled={propsLoading}
@@ -1285,322 +1278,240 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              Charger fichier Excel
+              Charger fichier propriétés (Excel)
             </button>
           </div>
-        </div>        {/* ── Cartes par catégorie issues du fichier Excel propriétés ── */}
-        {propsCategories && propsCategories.length > 0 && (
-          <div className="space-y-6">
+        </div>
 
-            {/* Barre d'en-tête globale */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-[#3b1f6e] uppercase tracking-widest">Propriétés MOA importées</span>
-              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                {propsCategories.length} catégorie{propsCategories.length > 1 ? 's' : ''}
-              </span>
-              <button
-                onClick={() => setPropsCategories(null)}
-                className="ml-auto text-xs text-slate-400 hover:text-red-400 transition-colors"
-              >✕ Effacer</button>
-            </div>
+        {(() => {
+          // ── Catégories MOA issues du mapping Excel ──────────────────────────
+          const moaCategories = Array.from(new Set(
+            excelRows.map(r => r.categorieMoa).filter(Boolean)
+          )).sort();
 
-            {/* Une carte par catégorie */}
-            {propsCategories.map(catData => {
-              const { name, nameNormalised, ifcClasses, properties } = catData;
-
-              // ── Croiser avec le mapping : cherche les lignes dont la categorieMoa
-              //    correspond à ce nom de catégorie (comparaison normalisée)
-              const matchedRows = excelRows.filter(r =>
-                normalise(r.categorieMoa) === nameNormalised ||
-                normalise(r.categorieMoa).includes(nameNormalised) ||
-                nameNormalised.includes(normalise(r.categorieMoa))
-              );
-
-              const missingOnly = filterMissing[name] ?? false;
-              const displayedRows = missingOnly
-                ? matchedRows.filter(obj => properties.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
-                : matchedRows;
-
-              const totalChecks  = matchedRows.length * properties.length;
-              const missingCount = matchedRows.reduce(
-                (acc, obj) => acc + properties.filter(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante').length,
-                0
-              );
-              const conformRate = totalChecks > 0 ? Math.round(((totalChecks - missingCount) / totalChecks) * 100) : null;
-              const rateColor   = conformRate === null ? 'text-white/60' : conformRate >= 80 ? 'text-emerald-300' : conformRate >= 60 ? 'text-orange-300' : 'text-red-300';
-
-              return (
-                <div key={name} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-
-                  {/* ── En-tête sombre (inspiré de l'image Excel) ── */}
-                  <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <div className="text-white font-bold text-sm leading-tight">{name}</div>
-                        {ifcClasses.length > 0 && (
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            {ifcClasses.map(cls => (
-                              <span key={cls} className="text-[10px] font-mono text-indigo-300 bg-indigo-900/60 px-2 py-0.5 rounded">
-                                {cls}
-                              </span>
-                            ))}
+          // ── Si un fichier propriétés Excel est chargé → cartes riches ──────
+          if (propsCategories && propsCategories.length > 0) {
+            return (
+              <div className="space-y-6">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#3b1f6e] uppercase tracking-widest">Propriétés MOA importées</span>
+                  <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                    {propsCategories.length} catégorie{propsCategories.length > 1 ? 's' : ''}
+                  </span>
+                  <button onClick={() => setPropsCategories(null)} className="ml-auto text-xs text-slate-400 hover:text-red-400 transition-colors">✕ Effacer</button>
+                </div>
+                {propsCategories.map(catData => {
+                  const { name, ifcClasses, properties } = catData;
+                  const matchedRows = excelRows.filter(r =>
+                    normalise(r.categorieMoa) === catData.nameNormalised ||
+                    normalise(r.categorieMoa).includes(catData.nameNormalised) ||
+                    catData.nameNormalised.includes(normalise(r.categorieMoa))
+                  );
+                  const missingOnly = filterMissing[name] ?? false;
+                  const displayedRows = missingOnly
+                    ? matchedRows.filter(obj => properties.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
+                    : matchedRows;
+                  const totalChecks = matchedRows.length * properties.length;
+                  const missingCount = matchedRows.reduce((acc, obj) => acc + properties.filter(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante').length, 0);
+                  const conformRate = totalChecks > 0 ? Math.round(((totalChecks - missingCount) / totalChecks) * 100) : null;
+                  const rateColor = conformRate === null ? 'text-white/60' : conformRate >= 80 ? 'text-emerald-300' : conformRate >= 60 ? 'text-orange-300' : 'text-red-300';
+                  return (
+                    <div key={name} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <div className="text-white font-bold text-sm">{name}</div>
+                            {ifcClasses.length > 0 && (
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {ifcClasses.map(cls => (
+                                  <span key={cls} className="text-[10px] font-mono text-indigo-300 bg-indigo-900/60 px-2 py-0.5 rounded">{cls}</span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
+                          <div className="flex items-center gap-2 ml-2">
+                            <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{properties.length} propriété{properties.length > 1 ? 's' : ''}</span>
+                            {matchedRows.length > 0 && <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{matchedRows.length} type{matchedRows.length > 1 ? 's' : ''} IFC</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {conformRate !== null && <span className={`text-lg font-black ${rateColor}`}>{conformRate}%</span>}
+                          <button onClick={() => setFilterMissing(prev => ({ ...prev, [name]: !prev[name] }))}
+                            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-500/20 border-orange-400 text-orange-300' : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10'}`}>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
+                            Manquants seulement
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 ml-2">
-                        <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
-                          {properties.length} propriété{properties.length > 1 ? 's' : ''}
-                        </span>
-                        {matchedRows.length > 0 && (
-                          <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">
-                            {matchedRows.length} type{matchedRows.length > 1 ? 's' : ''} IFC
+                      {matchedRows.length === 0 && (
+                        <div className="flex items-center gap-3 px-5 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
+                          <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          <span>Aucun type IFC associé à <strong>&quot;{name}&quot;</strong> dans le mapping.</span>
+                        </div>
+                      )}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-800 text-white">
+                              <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[200px] border-r border-slate-700">Nom du type</th>
+                              <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[120px] border-r border-slate-700">Type IFC</th>
+                              {properties.map(p => (
+                                <th key={p} className="text-center px-3 py-2 font-semibold text-slate-200 text-[10px] min-w-[90px] border-r border-slate-700 leading-tight">{p}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {displayedRows.map((obj, oi) => (
+                              <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-indigo-50/30`}>
+                                <td className="px-4 py-2.5 font-medium text-slate-700 border-r border-slate-100">{obj.nomDuType || <span className="text-slate-300 italic">—</span>}</td>
+                                <td className="px-4 py-2.5 border-r border-slate-100">
+                                  <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
+                                </td>
+                                {properties.map(p => {
+                                  const status = mockCellStatus(obj.type || obj.nomDuType, p);
+                                  return (
+                                    <td key={p} className="px-3 py-2.5 text-center border-r border-slate-100">
+                                      {status === 'Remplie'
+                                        ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto"><CheckCircle className="h-3.5 w-3.5" /></span>
+                                        : <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></span>}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                            {displayedRows.length === 0 && <tr><td colSpan={2 + properties.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun objet avec des propriétés manquantes.</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés :</span>
+                        {properties.map(p => (
+                          <span key={p} className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-700 text-[11px] font-medium px-2 py-0.5 rounded-full">
+                            {p}
+                            <button onClick={() => setPropsCategories(prev => prev ? prev.map(c => c.name === name ? { ...c, properties: c.properties.filter(x => x !== p) } : c).filter(c => c.properties.length > 0) : prev)} className="text-indigo-300 hover:text-red-400 ml-0.5 transition-colors" title="Retirer">×</button>
                           </span>
-                        )}
+                        ))}
+                        <button onClick={() => { const np = prompt(`Nouvelle propriété pour "${name}" :`); if (np?.trim()) setPropsCategories(prev => prev ? prev.map(c => c.name === name ? { ...c, properties: [...c.properties, np.trim()] } : c) : prev); }}
+                          className="text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold border border-dashed border-indigo-300 px-2 py-0.5 rounded-full hover:bg-indigo-50 transition-colors">+ Ajouter</button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {conformRate !== null && (
-                        <span className={`text-lg font-black ${rateColor}`} title="Taux de conformité (simulé)">
-                          {conformRate}%
-                        </span>
-                      )}
+                  );
+                })}
+              </div>
+            );
+          }
+
+          // ── Cartes par catégorie MOA issues du mapping (toujours visibles) ─
+          if (moaCategories.length === 0) {
+            return (
+              <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
+                <svg className="w-10 h-10 mb-3 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                <p className="text-sm font-medium">Chargez d&apos;abord le fichier de mappage (Excel) ci-dessus</p>
+                <p className="text-xs mt-1">Une carte sera créée automatiquement pour chaque catégorie MOA</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-4">
+              {moaCategories.map(cat => {
+                const rowsForCat = excelRows.filter(r => r.categorieMoa === cat);
+                const props = categoryProps[cat] ?? [];
+                const missingOnly = filterMissing[cat] ?? false;
+                const displayedRows = missingOnly
+                  ? rowsForCat.filter(obj => props.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
+                  : rowsForCat;
+
+                return (
+                  <div key={cat} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    {/* Header */}
+                    <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="text-white font-bold text-sm">{cat}</div>
+                        <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{rowsForCat.length} type{rowsForCat.length > 1 ? 's' : ''}</span>
+                      </div>
                       <button
-                        onClick={() => setFilterMissing(prev => ({ ...prev, [name]: !prev[name] }))}
-                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                          missingOnly
-                            ? 'bg-orange-500/20 border-orange-400 text-orange-300'
-                            : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10 hover:text-white/80'
-                        }`}
+                        onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-500/20 border-orange-400 text-orange-300' : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10'}`}
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-                        </svg>
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
                         Manquants seulement
                       </button>
                     </div>
-                  </div>
 
-                  {/* ── Avertissement si pas de types dans le mapping ── */}
-                  {matchedRows.length === 0 && (
-                    <div className="flex items-center gap-3 px-5 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
-                      <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span>
-                        Aucun type IFC associé à <strong>&quot;{name}&quot;</strong> dans le mapping.
-                        Chargez le fichier de mappage (section ci-dessus) et assignez la catégorie MOA correspondante.
-                      </span>
-                    </div>
-                  )}
-
-                  {/* ── Tableau : lignes = types d'objets, colonnes = propriétés ── */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        {/* Ligne 1 : colonnes de propriétés groupées */}
-                        <tr className="bg-slate-800 text-white">
-                          <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[200px] border-r border-slate-700">
-                            Nom du type
-                          </th>
-                          <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[120px] border-r border-slate-700">
-                            Type IFC
-                          </th>
-                          {properties.map(p => (
-                            <th key={p} className="text-center px-3 py-2 font-semibold text-slate-200 text-[10px] min-w-[90px] border-r border-slate-700 leading-tight">
-                              {p}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayedRows.map((obj, oi) => (
-                          <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-indigo-50/30 transition-colors`}>
-                            <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug border-r border-slate-100">
-                              {obj.nomDuType || <span className="text-slate-300 italic">—</span>}
-                            </td>
-                            <td className="px-4 py-2.5 border-r border-slate-100">
-                              <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">
-                                {obj.type || '—'}
-                              </span>
-                            </td>
-                            {properties.map(p => {
-                              const status = mockCellStatus(obj.type || obj.nomDuType, p);
-                              return (
-                                <td key={p} className="px-3 py-2.5 text-center border-r border-slate-100">
-                                  {status === 'Remplie' ? (
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto" title="Remplie">
-                                      <CheckCircle className="h-3.5 w-3.5" />
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto" title="Manquante">
-                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                      </svg>
-                                    </span>
-                                  )}
+                    {/* Tableau types */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider w-[30%]">Composant Solibri</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider w-[35%]">Nom du type</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider w-[20%]">Type IFC</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Validation</th>
+                            {props.map(p => (
+                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-slate-500 text-[10px] min-w-[80px] border-l border-slate-200">{p}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayedRows.map((obj, oi) => {
+                            const isValide    = obj.validation === 'Validé';
+                            const isNonValide = obj.validation.startsWith('Non validé');
+                            return (
+                              <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-indigo-50/20 transition-colors`}>
+                                <td className="px-4 py-2.5 text-slate-600 leading-snug">{obj.composant || <span className="text-slate-300 italic">—</span>}</td>
+                                <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug">{obj.nomDuType || <span className="text-slate-300 italic">—</span>}</td>
+                                <td className="px-4 py-2.5">
+                                  <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
                                 </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                        {displayedRows.length === 0 && matchedRows.length > 0 && (
-                          <tr>
-                            <td colSpan={2 + properties.length} className="text-center py-6 text-slate-400 italic text-xs">
-                              Aucun objet avec des propriétés manquantes.
-                            </td>
-                          </tr>
-                        )}
-                        {matchedRows.length === 0 && (
-                          <tr>
-                            <td colSpan={2 + properties.length} className="py-0" />
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* ── Pied de carte : liste des propriétés attendues (éditable) ── */}
-                  <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés :</span>
-                    {properties.map(p => (
-                      <span key={p} className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-700 text-[11px] font-medium px-2 py-0.5 rounded-full">
-                        {p}
-                        <button
-                          onClick={() => setPropsCategories(prev =>
-                            prev ? prev.map(c => c.name === name
-                              ? { ...c, properties: c.properties.filter(x => x !== p) }
-                              : c
-                            ).filter(c => c.properties.length > 0)
-                            : prev
+                                <td className="px-4 py-2.5">
+                                  {obj.validation ? (
+                                    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${isValide ? 'bg-emerald-100 text-emerald-700' : isNonValide ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
+                                      {isValide ? '✓' : isNonValide ? '✗' : '…'} {obj.validation.replace('Non validé : ', '')}
+                                    </span>
+                                  ) : <span className="text-slate-300 italic text-[11px]">—</span>}
+                                </td>
+                                {props.map(p => {
+                                  const status = mockCellStatus(obj.type || obj.nomDuType, p);
+                                  return (
+                                    <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100">
+                                      {status === 'Remplie'
+                                        ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto"><CheckCircle className="h-3.5 w-3.5" /></span>
+                                        : <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></span>}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                          {displayedRows.length === 0 && (
+                            <tr><td colSpan={4 + props.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun élément à afficher.</td></tr>
                           )}
-                          className="text-indigo-300 hover:text-red-400 ml-0.5 transition-colors"
-                          title="Retirer cette propriété"
-                        >×</button>
-                      </span>
-                    ))}
-                    <button
-                      onClick={() => {
-                        const newProp = prompt(`Nouvelle propriété pour "${name}" :`);
-                        if (newProp?.trim()) setPropsCategories(prev =>
-                          prev ? prev.map(c => c.name === name
-                            ? { ...c, properties: [...c.properties, newProp.trim()] }
-                            : c
-                          ) : prev
-                        );
-                      }}
-                      className="text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold border border-dashed border-indigo-300 px-2 py-0.5 rounded-full hover:bg-indigo-50 transition-colors"
-                    >+ Ajouter</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                        </tbody>
+                      </table>
+                    </div>
 
-        {/* Bloc legacy — affiché uniquement si aucun fichier Excel propriétés n'est chargé */}
-        {!propsCategories && <div className="space-y-4">
-          {categories.map(cat => {
-            const props = categoryProps[cat] ?? [];
-            const ifcTypes = mappingRows.filter(r => r.category === cat && r.rule !== 'Excluded').map(r => r.ifcType);
-            if (ifcTypes.length === 0) return null;
-            // Simuler 2–4 objets par catégorie
-            const mockObjects = ifcTypes.slice(0, 3).map((t, i) => ({ id: `${t}_${382 + i}X4${i + 1}_A`, ifcType: t }));
-            const missingOnly = filterMissing[cat] ?? false;
-            const displayed = missingOnly
-              ? mockObjects.filter(obj => props.some(p => mockCellStatus(obj.ifcType, p) === 'Manquante'))
-              : mockObjects;
-            const totalCount = ifcTypes.length * 28; // simulé
-
-            return (
-              <div key={cat} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                {/* Catégorie header */}
-                <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-1 h-6 bg-orange-500 rounded-full" />
-                    <span className="font-bold text-slate-800">{cat}</span>
-                    <span className="text-xs text-slate-400">{totalCount} objets détectés</span>
-                  </div>
-                  <button
-                    onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-50 border-orange-300 text-orange-600' : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'}`}
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-                    </svg>
-                    Filtrer les manquants
-                  </button>
-                </div>
-                {/* Tableau propriétés */}
-                {props.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="text-left px-5 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[160px]">Object ID</th>
-                          {props.map(p => (
-                            <th key={p} className="text-left px-4 py-2.5 font-bold text-slate-400 uppercase tracking-widest text-[10px] min-w-[120px]">{p}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {displayed.map((obj, oi) => (
-                          <tr key={obj.id} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
-                            <td className="px-5 py-2.5 font-mono text-slate-600 font-semibold">{obj.id}</td>
-                            {props.map(p => {
-                              const status = mockCellStatus(obj.ifcType, p);
-                              return (
-                                <td key={p} className="px-4 py-2.5">
-                                  {status === 'Remplie' ? (
-                                    <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                                      <CheckCircle className="h-3.5 w-3.5" /> Remplie
-                                    </span>
-                                  ) : (
-                                    <span className="flex items-center gap-1.5 text-red-500 font-semibold">
-                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                        <circle cx="12" cy="12" r="10" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 9l-6 6M9 9l6 6" />
-                                      </svg>
-                                      Manquante
-                                    </span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
+                    {/* Pied de carte — propriétés */}
+                    {props.length > 0 && (
+                      <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés à contrôler :</span>
+                        {props.map(p => (
+                          <span key={p} className="text-[11px] bg-white border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-full font-medium">{p}</span>
                         ))}
-                        {displayed.length === 0 && (
-                          <tr><td colSpan={1 + props.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun objet avec des propriétés manquantes.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
+                      </div>
+                    )}
+                    {props.length === 0 && (
+                      <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-400 italic flex items-center gap-2">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Chargez un fichier Excel de propriétés pour afficher les contrôles par propriété
+                      </div>
+                    )}
                   </div>
-                )}
-                {/* Gestion des propriétés attendues */}
-                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés attendues :</span>
-                  {props.map(p => (
-                    <span key={p} className="inline-flex items-center gap-1 bg-white border border-slate-200 text-slate-600 text-[11px] font-medium px-2 py-0.5 rounded-full">
-                      {p}
-                      <button
-                        onClick={() => setCategoryProps(prev => ({ ...prev, [cat]: (prev[cat] ?? []).filter(x => x !== p) }))}
-                        className="text-slate-300 hover:text-red-400 ml-0.5"
-                      >×</button>
-                    </span>
-                  ))}
-                  <button
-                    onClick={() => {
-                      const name = prompt(`Nouvelle propriété pour "${cat}" :`);
-                      if (name?.trim()) setCategoryProps(prev => ({ ...prev, [cat]: [...(prev[cat] ?? []), name.trim()] }));
-                    }}
-                    className="text-[11px] text-blue-500 hover:text-blue-700 font-semibold border border-dashed border-blue-300 px-2 py-0.5 rounded-full hover:bg-blue-50 transition-colors"
-                  >                    + Ajouter
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      }
-      </div>
+                );
+              })}
+            </div>
+          );
+        })()}      </div>
     </div>
   );
 }
@@ -3255,7 +3166,7 @@ export default function Dashboard() {
              <div className="w-6 h-6 bg-purple-400 rounded flex items-center justify-center text-white text-[10px]">IFC</div>
              <span>IFC Quality Control</span>
           </div>          <nav className="flex space-x-6 text-sm font-medium text-purple-300">
-            {['Tableau de bord', 'Maquettes', 'Rapports', 'Conformité', 'Paramètres', 'LLM'].map(t => (
+            {['Tableau de bord', 'Structure Maquettes', 'Rapports', 'Conformité', 'Paramètres', 'LLM'].map(t => (
               <span
                 key={t}
                 onClick={() => setActiveTab(t)}
@@ -3286,7 +3197,7 @@ export default function Dashboard() {
             )}            <Bell className="h-5 w-5 text-purple-300" />
             <UserCircle className="h-6 w-6 text-purple-300" />
           </div>
-        </header>        <div className="flex-1 overflow-y-auto p-8 bg-[#ede8f5]">          {activeTab === 'Maquettes' ? (
+        </header>        <div className="flex-1 overflow-y-auto p-8 bg-[#ede8f5]">          {activeTab === 'Structure Maquettes' ? (
             <>
               <div className="flex justify-between items-end mb-8">
                 <div>
