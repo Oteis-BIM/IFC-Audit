@@ -1451,19 +1451,53 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         return val === null || val === undefined || val === '';
                       });
                     })
-                  : rowsForCat;
+                  : rowsForCat;                const hasProps = props.length > 0;
 
-                const hasProps = props.length > 0;
+                // ── Stats de conformité (calculées depuis propCheckResults) ──
+                const checkedRows = rowsForCat.filter(obj => propCheckResults[normalise(obj.nomDuType)]);
+                const isVerified  = checkedRows.length > 0;
+                const totalChecks = checkedRows.length * props.length;
+                const filledCount = checkedRows.reduce((acc, obj) => {
+                  const res = propCheckResults[normalise(obj.nomDuType)];
+                  return acc + props.filter(p => res?.props[p] !== null && res?.props[p] !== undefined && res?.props[p] !== '').length;
+                }, 0);
+                const missingCount = totalChecks - filledCount;
+                const conformRate  = totalChecks > 0 ? Math.round((filledCount / totalChecks) * 100) : null;
+                const rateColor    = conformRate === null ? '' : conformRate >= 80 ? 'text-emerald-300' : conformRate >= 50 ? 'text-orange-300' : 'text-red-300';
+                const rateBg       = conformRate === null ? '' : conformRate >= 80 ? 'bg-emerald-500/20 border-emerald-400' : conformRate >= 50 ? 'bg-orange-500/20 border-orange-400' : 'bg-red-500/20 border-red-400';
 
                 return (
                   <div key={cat} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     {/* Header */}
                     <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <div className="text-white font-bold text-sm">{cat}</div>
                         <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{rowsForCat.length} type{rowsForCat.length > 1 ? 's' : ''}</span>
                         {hasProps && (
                           <span className="text-[11px] text-indigo-300 bg-indigo-900/50 px-2 py-0.5 rounded-full">{props.length} propriété{props.length > 1 ? 's' : ''}</span>
+                        )}
+                        {/* Statut de vérification */}
+                        {propCheckLoading && (
+                          <span className="text-[11px] text-white/50 italic flex items-center gap-1">
+                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                            Vérification…
+                          </span>
+                        )}
+                        {!propCheckLoading && isVerified && conformRate !== null && (
+                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${rateBg} ${rateColor}`}>
+                            {conformRate === 100
+                              ? <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg> 100% conforme</>
+                              : <>{conformRate}% — {filledCount}/{totalChecks} renseigné{filledCount > 1 ? 's' : ''}</>
+                            }
+                          </span>
+                        )}
+                        {!propCheckLoading && isVerified && missingCount > 0 && (
+                          <span className="text-[11px] text-red-300 bg-red-500/15 border border-red-400/40 px-2 py-0.5 rounded-full">
+                            {missingCount} manquant{missingCount > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {!propCheckLoading && !isVerified && hasProps && Object.keys(propCheckResults).length === 0 && (
+                          <span className="text-[11px] text-white/30 italic">Non vérifié</span>
                         )}
                       </div>
                       <button
