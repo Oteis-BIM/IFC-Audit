@@ -17,30 +17,42 @@ export async function POST(req: NextRequest) {
     const scriptPath = path.join(projectRoot, 'scripts', 'agent_ifc.py');
 
     // Résolution robuste de Python sur Windows :
-    // 1. Variable d'env PYTHON_PATH (priorité absolue)
-    // 2. `where python` / `which python3` selon la plateforme
-    // 3. Fallbacks connus
+    // Les alias Windows Store (WindowsApps\python.exe) existent sur le disque
+    // mais ne peuvent pas être lancés via spawn() — ils nécessitent une interaction UI.
+    // Priorité : PYTHON_PATH env > py launcher > chemins réels Python connus > python
     function resolvePython(): string {
       if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
         return process.env.PYTHON_PATH;
       }
       if (process.platform === 'win32') {
+        // 1. py.exe launcher (toujours fonctionnel, pas affecté par WindowsApps)
+        const pyLauncher = 'C:\\Users\\' + (process.env.USERNAME ?? '') + '\\AppData\\Local\\Programs\\Python\\Launcher\\py.exe';
+        if (fs.existsSync(pyLauncher)) return pyLauncher;
+
+        // 2. Chemins réels Python (non-WindowsApps) — via `py -3 -c "import sys; print(sys.executable)"`
+        try {
+          const real = execSync('py -3 -c "import sys; print(sys.executable)"', { encoding: 'utf-8', timeout: 5000 }).trim();
+          if (real && fs.existsSync(real) && !real.includes('WindowsApps')) return real;
+        } catch { /* ignore */ }
+
+        // 3. `where python` en filtrant les stubs WindowsApps
         try {
           const result = execSync('where python', { encoding: 'utf-8', timeout: 3000 }).trim();
-          const lines = result.split('\n').map(l => l.trim()).filter(l => l.endsWith('.exe') && !l.includes('WindowsApps\\python.exe'));
+          const lines = result.split('\n').map(l => l.trim()).filter(l =>
+            l.endsWith('.exe') && !l.includes('WindowsApps')
+          );
           if (lines.length > 0) return lines[0];
-          // Accepter aussi WindowsApps si c'est le seul disponible
-          const allLines = result.split('\n').map(l => l.trim()).filter(Boolean);
-          if (allLines.length > 0) return allLines[0];
         } catch { /* ignore */ }
-        // Fallback : chemin exact détecté sur cette machine
+
+        // 4. Chemins d'installation standard Python
+        const base = process.env.LOCALAPPDATA ?? 'C:\\Users\\' + (process.env.USERNAME ?? '') + '\\AppData\\Local';
         const knownPaths = [
-          process.env.LOCALAPPDATA + '\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe',
-          process.env.LOCALAPPDATA + '\\Microsoft\\WindowsApps\\python.exe',
+          base + '\\Programs\\Python\\Python313\\python.exe',
+          base + '\\Programs\\Python\\Python312\\python.exe',
+          base + '\\Programs\\Python\\Python311\\python.exe',
+          base + '\\Programs\\Python\\Python310\\python.exe',
           'C:\\Python313\\python.exe',
           'C:\\Python312\\python.exe',
-          'C:\\Python311\\python.exe',
-          'C:\\Python310\\python.exe',
         ];
         for (const p of knownPaths) {
           if (p && fs.existsSync(p)) return p;
@@ -51,6 +63,11 @@ export async function POST(req: NextRequest) {
     }
 
     const pythonCommand = resolvePython();
+    // Si c'est le launcher py.exe, on lui passe -3 en premier argument
+    const isPyLauncher = pythonCommand.toLowerCase().endsWith('\\py.exe');
+    const spawnArgs = isPyLauncher
+      ? ['-3', scriptPath, '--question', question, '--ifc', ifcPath]
+      : [scriptPath, '--question', question, '--ifc', ifcPath];
 
     const childEnv = {
       ...process.env,
@@ -60,7 +77,7 @@ export async function POST(req: NextRequest) {
     };
 
     // On lance le script Python
-    const child = spawn(pythonCommand, [scriptPath, '--question', question, '--ifc', ifcPath], {
+    const child = spawn(pythonCommand, spawnArgs, {
       cwd: projectRoot,
       env: childEnv,
     });
