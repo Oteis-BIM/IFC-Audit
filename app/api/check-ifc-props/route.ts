@@ -79,6 +79,25 @@ function extractPropsFromIfc(
     }
   }
 
+  // 2b. TypeObject HasPropertySets — IFC 2x3 : les TypeObjects (IfcElectricApplianceType,
+  //     IfcLightFixtureType, etc.) référencent leurs Psets DIRECTEMENT via HasPropertySets
+  //     (args[5]), PAS via IfcRelDefinesByProperties. C'est la cause des valeurs manquantes.
+  for (const [id, body] of index) {
+    const entityTypeName = body.split("(")[0].toUpperCase();
+    // TypeObjects : nom IFC qui finit par "TYPE" mais qui n'est pas une Relation (IFCREL…)
+    if (!entityTypeName.startsWith("IFCREL") && entityTypeName.endsWith("TYPE")) {
+      const args = parseArgs(body);
+      const psetListRaw = (args[5] ?? "").trim();
+      if (psetListRaw && psetListRaw !== "$") {
+        const psetRefs = parseRefList(psetListRaw);
+        for (const ref of psetRefs) {
+          if (!entityToProps.has(id)) entityToProps.set(id, []);
+          if (!entityToProps.get(id)!.includes(ref)) entityToProps.get(id)!.push(ref);
+        }
+      }
+    }
+  }
+
   // 3. IfcRelDefinesByType : instance -> typeObjectId
   const instanceToType = new Map<string, string>();
   for (const [, body] of index) {
@@ -92,21 +111,45 @@ function extractPropsFromIfc(
   // 4. PropertySet -> Map<propName, valeur>
   const psetValues = new Map<string, Map<string, string>>();
   for (const [psetId, body] of index) {
-    if (!body.toUpperCase().startsWith("IFCPROPERTYSET(")) continue;
+    const entityTypeName = body.split("(")[0].toUpperCase();
+    // Gère IfcPropertySet ET IfcElementQuantity
+    if (entityTypeName !== "IFCPROPERTYSET" && entityTypeName !== "IFCELEMENTQUANTITY") continue;
     const propMap = new Map<string, string>();
-    for (const propRef of parseRefList(parseArgs(body)[4] ?? "")) {
+    const pArgs = parseArgs(body);
+    const propsListRaw = (pArgs[4] ?? "").trim();
+    if (!propsListRaw || propsListRaw === "$") { psetValues.set(psetId, propMap); continue; }
+    for (const propRef of parseRefList(propsListRaw)) {
       const pb = index.get(propRef);
-      if (!pb?.toUpperCase().startsWith("IFCPROPERTYSINGLEVALUE(")) continue;
-      const pa      = parseArgs(pb);
-      const propName = stepStr(pa[0] ?? "");
-      if (!propName) continue;
-      const nom = pa[2] ?? "$";
-      let val   = "";
-      if (nom && nom !== "$") {
-        const inner = nom.match(/\(([^)]*)\)/);
-        val = inner ? stepStr(inner[1]) : stepStr(nom);
+      if (!pb) continue;
+      const pbUpper = pb.toUpperCase();
+      const pa = parseArgs(pb);
+      // IfcPropertySingleValue(Name, Description, NominalValue, Unit)
+      if (pbUpper.startsWith("IFCPROPERTYSINGLEVALUE(")) {
+        const propName = stepStr(pa[0] ?? "");
+        if (!propName) continue;
+        const nom = pa[2] ?? "$";
+        let val = "";
+        if (nom && nom !== "$") {
+          const inner = nom.match(/\(([^)]*)\)/);
+          val = inner ? stepStr(inner[1]) : stepStr(nom);
+        }
+        propMap.set(propName, val);
       }
-      propMap.set(propName, val);
+      // IfcPropertyEnumeratedValue(Name, Description, EnumerationValues, EnumerationReference)
+      else if (pbUpper.startsWith("IFCPROPERTYENUMERATEDVALUE(")) {
+        const propName = stepStr(pa[0] ?? "");
+        if (!propName) continue;
+        const enumValsRaw = (pa[2] ?? "$").replace(/[()]/g, "");
+        const vals = [...enumValsRaw.matchAll(/\(([^)]*)\)/g)].map(mm => stepStr(mm[1])).filter(Boolean);
+        propMap.set(propName, vals.join(", "));
+      }
+      // IfcQuantityLength / IfcQuantityArea / IfcQuantityVolume
+      else if (pbUpper.startsWith("IFCQUANTITY")) {
+        const propName = stepStr(pa[0] ?? "");
+        if (!propName) continue;
+        const val = pa[3] ?? pa[2] ?? "$";
+        propMap.set(propName, val === "$" ? "" : val.trim());
+      }
     }
     psetValues.set(psetId, propMap);
   }
@@ -126,6 +169,24 @@ function extractPropsFromIfc(
     const typeId = instanceToType.get(eid);
     if (typeId) collect(typeId);
     return result;
+  }
+
+  /** Lookup insensible à la casse, puis normalisé sans accents */
+  function lookupProp(allProps: Map<string, string>, propName: string): string | null {
+    // 1) Correspondance exacte
+    const exact = allProps.get(propName);
+    if (exact !== undefined) return exact === "" ? null : exact;
+    // 2) Insensible à la casse
+    const lower = propName.toLowerCase();
+    for (const [k, v] of allProps) {
+      if (k.toLowerCase() === lower) return v === "" ? null : v;
+    }
+    // 3) Normalisé (sans accents, sans tirets/espaces)
+    const norm = normalise(propName);
+    for (const [k, v] of allProps) {
+      if (normalise(k) === norm) return v === "" ? null : v;
+    }
+    return null;
   }
 
   const results: PropCheckResult[] = [];
@@ -167,8 +228,7 @@ function extractPropsFromIfc(
 
     const propValues: Record<string, string | null> = {};
     for (const prop of req.properties) {
-      const v = allProps.get(prop);
-      propValues[prop] = (v !== undefined && v !== "") ? v : null;
+      propValues[prop] = lookupProp(allProps, prop);
     }
 
     results.push({ nomDuType: req.nomDuType, ifcName, instanceCount: instanceIds.length, props: propValues });
