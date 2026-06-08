@@ -996,9 +996,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
 
     setPropCheckLoading(true);
     setPropCheckError(null);
-    setPropCheckResults({});
-
-    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
+    setPropCheckResults({});    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
     const requests = excelRows
       .filter(row => row.nomDuType)
       .map(row => {
@@ -1008,7 +1006,11 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           pc.nameNormalised.includes(catNorm) ||
           catNorm.includes(pc.nameNormalised)
         );
-        return { nomDuType: row.nomDuType, properties: catData?.properties ?? [] };
+        return {
+          nomDuType:  row.nomDuType,
+          type:       row.type,       // type court (ex: "CAN_ICTA 3422") pour la recherche IFC
+          properties: catData?.properties ?? [],
+        };
       })
       .filter(r => r.properties.length > 0)
       // déduplique par nomDuType
