@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,11 +16,41 @@ export async function POST(req: NextRequest) {
     const projectRoot = process.cwd();
     const scriptPath = path.join(projectRoot, 'scripts', 'agent_ifc.py');
 
-    // Chemin absolu vers Python pour éviter ENOENT quand le PATH du process enfant est restreint
-    // Windows Store alias ('python') peut être invisible aux process enfants → on utilise le chemin complet
-    const pythonCommand = process.platform === 'win32'
-      ? (process.env.PYTHON_PATH ?? 'C:\\Users\\morgan.Lenin\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe')
-      : 'python3';
+    // Résolution robuste de Python sur Windows :
+    // 1. Variable d'env PYTHON_PATH (priorité absolue)
+    // 2. `where python` / `which python3` selon la plateforme
+    // 3. Fallbacks connus
+    function resolvePython(): string {
+      if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+        return process.env.PYTHON_PATH;
+      }
+      if (process.platform === 'win32') {
+        try {
+          const result = execSync('where python', { encoding: 'utf-8', timeout: 3000 }).trim();
+          const lines = result.split('\n').map(l => l.trim()).filter(l => l.endsWith('.exe') && !l.includes('WindowsApps\\python.exe'));
+          if (lines.length > 0) return lines[0];
+          // Accepter aussi WindowsApps si c'est le seul disponible
+          const allLines = result.split('\n').map(l => l.trim()).filter(Boolean);
+          if (allLines.length > 0) return allLines[0];
+        } catch { /* ignore */ }
+        // Fallback : chemin exact détecté sur cette machine
+        const knownPaths = [
+          process.env.LOCALAPPDATA + '\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe',
+          process.env.LOCALAPPDATA + '\\Microsoft\\WindowsApps\\python.exe',
+          'C:\\Python313\\python.exe',
+          'C:\\Python312\\python.exe',
+          'C:\\Python311\\python.exe',
+          'C:\\Python310\\python.exe',
+        ];
+        for (const p of knownPaths) {
+          if (p && fs.existsSync(p)) return p;
+        }
+        return 'python';
+      }
+      return 'python3';
+    }
+
+    const pythonCommand = resolvePython();
 
     const childEnv = {
       ...process.env,
