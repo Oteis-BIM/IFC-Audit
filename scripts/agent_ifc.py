@@ -93,7 +93,12 @@ def poser_question_au_batiment(question_utilisateur: str, chemin_ifc: str = CHEM
         return "[ERREUR] Variable d environnement OPENAI_API_KEY non definie."
 
     # Initialisation du client OpenAI
-    client = OpenAI(api_key=api_key)
+    # Si OPENAI_BASE_URL est defini (ex: GitHub Models / Azure AI inference), on l utilise
+    base_url = os.environ.get("OPENAI_BASE_URL")
+    client = OpenAI(
+        api_key=api_key,
+        **( {"base_url": base_url} if base_url else {} )
+    )
 
     print(f"\n[Agent IFC] Question : {question_utilisateur}")
     print(f"[Agent IFC] Maquette : {chemin_ifc}")
