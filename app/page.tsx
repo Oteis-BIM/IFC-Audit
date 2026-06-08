@@ -918,10 +918,28 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         type:         r.type,
         categorieMoa: r.categorieTnd,
         validation:   '',
-      }));
-
-      setMoaOptions(opts);
+      }));      setMoaOptions(opts);
       setExcelRows(rows);
+      setImportStatus({ ok: true, msg: `${rows.length} ligne(s) importée(s) depuis "${file.name}" — Détection des propriétés…` });
+
+      // ── Auto-détection des propriétés dans le même fichier ───────────────
+      // Le fichier TND contient col A = Catégories MOA, col C = Propriété - Paramètre IFC
+      try {
+        setPropsLoading(true);
+        setPropsError(null);
+        const propsFormData = new FormData();
+        propsFormData.append('file', file);
+        const propsRes = await fetch('/api/parse-props-excel', { method: 'POST', body: propsFormData });
+        const propsData = await propsRes.json();
+        if (propsRes.ok && propsData.format === 'long' && (propsData.categories?.length ?? 0) > 0) {
+          setPropsCategories(propsData.categories);
+        }
+      } catch {
+        // Silent — propriétés non détectées automatiquement
+      } finally {
+        setPropsLoading(false);
+      }
+
       setImportStatus({ ok: true, msg: `${rows.length} ligne(s) importée(s) depuis "${file.name}" — Lancement de l'analyse IA…` });
 
       // Analyse IA automatique après import
@@ -1281,127 +1299,12 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               Charger fichier propriétés (Excel)
             </button>
           </div>
-        </div>
-
-        {(() => {
+        </div>        {(() => {
           // ── Catégories MOA issues du mapping Excel ──────────────────────────
           const moaCategories = Array.from(new Set(
             excelRows.map(r => r.categorieMoa).filter(Boolean)
           )).sort();
 
-          // ── Si un fichier propriétés Excel est chargé → cartes riches ──────
-          if (propsCategories && propsCategories.length > 0) {
-            return (
-              <div className="space-y-6">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-[#3b1f6e] uppercase tracking-widest">Propriétés MOA importées</span>
-                  <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                    {propsCategories.length} catégorie{propsCategories.length > 1 ? 's' : ''}
-                  </span>
-                  <button onClick={() => setPropsCategories(null)} className="ml-auto text-xs text-slate-400 hover:text-red-400 transition-colors">✕ Effacer</button>
-                </div>
-                {propsCategories.map(catData => {
-                  const { name, ifcClasses, properties } = catData;
-                  const matchedRows = excelRows.filter(r =>
-                    normalise(r.categorieMoa) === catData.nameNormalised ||
-                    normalise(r.categorieMoa).includes(catData.nameNormalised) ||
-                    catData.nameNormalised.includes(normalise(r.categorieMoa))
-                  );
-                  const missingOnly = filterMissing[name] ?? false;
-                  const displayedRows = missingOnly
-                    ? matchedRows.filter(obj => properties.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
-                    : matchedRows;
-                  const totalChecks = matchedRows.length * properties.length;
-                  const missingCount = matchedRows.reduce((acc, obj) => acc + properties.filter(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante').length, 0);
-                  const conformRate = totalChecks > 0 ? Math.round(((totalChecks - missingCount) / totalChecks) * 100) : null;
-                  const rateColor = conformRate === null ? 'text-white/60' : conformRate >= 80 ? 'text-emerald-300' : conformRate >= 60 ? 'text-orange-300' : 'text-red-300';
-                  return (
-                    <div key={name} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
-                        <div className="flex items-center gap-3">
-                          <div>
-                            <div className="text-white font-bold text-sm">{name}</div>
-                            {ifcClasses.length > 0 && (
-                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                {ifcClasses.map(cls => (
-                                  <span key={cls} className="text-[10px] font-mono text-indigo-300 bg-indigo-900/60 px-2 py-0.5 rounded">{cls}</span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 ml-2">
-                            <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{properties.length} propriété{properties.length > 1 ? 's' : ''}</span>
-                            {matchedRows.length > 0 && <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{matchedRows.length} type{matchedRows.length > 1 ? 's' : ''} IFC</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {conformRate !== null && <span className={`text-lg font-black ${rateColor}`}>{conformRate}%</span>}
-                          <button onClick={() => setFilterMissing(prev => ({ ...prev, [name]: !prev[name] }))}
-                            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-500/20 border-orange-400 text-orange-300' : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10'}`}>
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
-                            Manquants seulement
-                          </button>
-                        </div>
-                      </div>
-                      {matchedRows.length === 0 && (
-                        <div className="flex items-center gap-3 px-5 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
-                          <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                          <span>Aucun type IFC associé à <strong>&quot;{name}&quot;</strong> dans le mapping.</span>
-                        </div>
-                      )}
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-slate-800 text-white">
-                              <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[200px] border-r border-slate-700">Nom du type</th>
-                              <th className="text-left px-4 py-2 font-bold text-slate-300 text-[10px] uppercase tracking-wider min-w-[120px] border-r border-slate-700">Type IFC</th>
-                              {properties.map(p => (
-                                <th key={p} className="text-center px-3 py-2 font-semibold text-slate-200 text-[10px] min-w-[90px] border-r border-slate-700 leading-tight">{p}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {displayedRows.map((obj, oi) => (
-                              <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-indigo-50/30`}>
-                                <td className="px-4 py-2.5 font-medium text-slate-700 border-r border-slate-100">{obj.nomDuType || <span className="text-slate-300 italic">—</span>}</td>
-                                <td className="px-4 py-2.5 border-r border-slate-100">
-                                  <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
-                                </td>
-                                {properties.map(p => {
-                                  const status = mockCellStatus(obj.type || obj.nomDuType, p);
-                                  return (
-                                    <td key={p} className="px-3 py-2.5 text-center border-r border-slate-100">
-                                      {status === 'Remplie'
-                                        ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto"><CheckCircle className="h-3.5 w-3.5" /></span>
-                                        : <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></span>}
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            ))}
-                            {displayedRows.length === 0 && <tr><td colSpan={2 + properties.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun objet avec des propriétés manquantes.</td></tr>}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés :</span>
-                        {properties.map(p => (
-                          <span key={p} className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-700 text-[11px] font-medium px-2 py-0.5 rounded-full">
-                            {p}
-                            <button onClick={() => setPropsCategories(prev => prev ? prev.map(c => c.name === name ? { ...c, properties: c.properties.filter(x => x !== p) } : c).filter(c => c.properties.length > 0) : prev)} className="text-indigo-300 hover:text-red-400 ml-0.5 transition-colors" title="Retirer">×</button>
-                          </span>
-                        ))}
-                        <button onClick={() => { const np = prompt(`Nouvelle propriété pour "${name}" :`); if (np?.trim()) setPropsCategories(prev => prev ? prev.map(c => c.name === name ? { ...c, properties: [...c.properties, np.trim()] } : c) : prev); }}
-                          className="text-[11px] text-indigo-500 hover:text-indigo-700 font-semibold border border-dashed border-indigo-300 px-2 py-0.5 rounded-full hover:bg-indigo-50 transition-colors">+ Ajouter</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          }
-
-          // ── Cartes par catégorie MOA issues du mapping (toujours visibles) ─
           if (moaCategories.length === 0) {
             return (
               <div className="flex flex-col items-center justify-center py-16 text-center text-slate-400">
@@ -1412,23 +1315,57 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             );
           }
 
+          // ── Construit un index rapide : nom normalisé → propriétés ─────────
+          const propsIndex: Record<string, string[]> = {};
+          if (propsCategories && propsCategories.length > 0) {
+            for (const pc of propsCategories) {
+              propsIndex[pc.nameNormalised] = pc.properties;
+            }
+          }
+
+          // ── Cherche les propriétés d'une catégorie MOA dans l'index ────────
+          function findProps(catName: string): string[] {
+            const n = normalise(catName);
+            // Correspondance exacte
+            if (propsIndex[n]) return propsIndex[n];
+            // Correspondance partielle
+            for (const [key, props] of Object.entries(propsIndex)) {
+              if (n.includes(key) || key.includes(n)) return props;
+            }
+            return [];
+          }
+
           return (
             <div className="space-y-4">
+              {propsCategories && propsCategories.length > 0 && (
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  <span className="text-xs font-bold text-emerald-700">{propsCategories.length} catégorie{propsCategories.length > 1 ? 's' : ''} avec propriétés détectées automatiquement</span>
+                  <button onClick={() => setPropsCategories(null)} className="ml-auto text-xs text-slate-400 hover:text-red-400 transition-colors">✕ Effacer les propriétés</button>
+                </div>
+              )}
+
               {moaCategories.map(cat => {
                 const rowsForCat = excelRows.filter(r => r.categorieMoa === cat);
-                const props = categoryProps[cat] ?? [];
+                // Propriétés : issues de propsCategories si chargé, sinon categoryProps (défaut)
+                const props = findProps(cat).length > 0 ? findProps(cat) : (categoryProps[cat] ?? []);
                 const missingOnly = filterMissing[cat] ?? false;
                 const displayedRows = missingOnly
                   ? rowsForCat.filter(obj => props.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
                   : rowsForCat;
 
+                const hasProps = props.length > 0;
+
                 return (
                   <div key={cat} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     {/* Header */}
-                    <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3">
+                    <div className="bg-[#1e1b4b] px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-3">
                         <div className="text-white font-bold text-sm">{cat}</div>
                         <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{rowsForCat.length} type{rowsForCat.length > 1 ? 's' : ''}</span>
+                        {hasProps && (
+                          <span className="text-[11px] text-indigo-300 bg-indigo-900/50 px-2 py-0.5 rounded-full">{props.length} propriété{props.length > 1 ? 's' : ''}</span>
+                        )}
                       </div>
                       <button
                         onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
@@ -1439,17 +1376,17 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                       </button>
                     </div>
 
-                    {/* Tableau types */}
+                    {/* Tableau */}
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider w-[30%]">Composant Solibri</th>
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider w-[35%]">Nom du type</th>
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider w-[20%]">Type IFC</th>
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider">Validation</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[160px]">Composant Solibri</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[200px]">Nom du type</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[120px]">Type IFC</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[90px]">Validation</th>
                             {props.map(p => (
-                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-slate-500 text-[10px] min-w-[80px] border-l border-slate-200">{p}</th>
+                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[100px] border-l border-slate-200 bg-indigo-50/60 leading-tight">{p}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1474,7 +1411,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                 {props.map(p => {
                                   const status = mockCellStatus(obj.type || obj.nomDuType, p);
                                   return (
-                                    <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100">
+                                    <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-indigo-50/20">
                                       {status === 'Remplie'
                                         ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto"><CheckCircle className="h-3.5 w-3.5" /></span>
                                         : <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></span>}
@@ -1491,16 +1428,15 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                       </table>
                     </div>
 
-                    {/* Pied de carte — propriétés */}
-                    {props.length > 0 && (
-                      <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2 flex-wrap">
+                    {/* Pied de carte */}
+                    {hasProps ? (
+                      <div className="px-5 py-3 bg-indigo-50/40 border-t border-indigo-100 flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mr-1">Propriétés à contrôler :</span>
                         {props.map(p => (
                           <span key={p} className="text-[11px] bg-white border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded-full font-medium">{p}</span>
                         ))}
                       </div>
-                    )}
-                    {props.length === 0 && (
+                    ) : (
                       <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 text-xs text-slate-400 italic flex items-center gap-2">
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         Chargez un fichier Excel de propriétés pour afficher les contrôles par propriété
@@ -1511,7 +1447,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               })}
             </div>
           );
-        })()}      </div>
+        })()}</div>
     </div>
   );
 }
