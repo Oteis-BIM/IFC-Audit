@@ -511,6 +511,15 @@ type PropsCategoryData = {
   properties: string[];    // ex: ["INF_Type", "GMAO_Marque", …]
 };
 
+// Résultat de vérification IFC par type d'objet + propriété
+type PropCheckResult = {
+  nomDuType:     string;
+  ifcName:       string;
+  instanceCount: number;
+  /** Pour chaque propriété : valeur trouvée ou null si absente/vide */
+  props:         Record<string, string | null>;
+};
+
 // Helper : normalise pour comparaison (minuscules, sans accents, sans ponctuation)
 function normalise(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -967,11 +976,70 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     );
     if (error) throw new Error(error.message);
   }, [excelRows]);
-
   // ── Import Excel propriétés MOA ───────────────────────────────────────────
-  const propsFileInputRef = useRef<HTMLInputElement>(null);  const [propsLoading, setPropsLoading] = useState(false);
+  const propsFileInputRef = useRef<HTMLInputElement>(null);
+  const [propsLoading, setPropsLoading] = useState(false);
   const [propsError, setPropsError] = useState<string | null>(null);
   const [propsCategories, setPropsCategories] = useState<PropsCategoryData[] | null>(null);
+
+  // ── Vérification IFC des propriétés ──────────────────────────────────────
+  // clé = normalise(nomDuType) → résultat de vérification
+  const [propCheckResults, setPropCheckResults] = useState<Record<string, PropCheckResult>>({});
+  const [propCheckLoading, setPropCheckLoading] = useState(false);
+  const [propCheckError, setPropCheckError] = useState<string | null>(null);
+
+  const handleCheckIFCProps = useCallback(async () => {
+    if (!selectedAudit) { setPropCheckError('Sélectionnez une maquette IFC.'); return; }
+    if (!propsCategories || propsCategories.length === 0) { setPropCheckError('Chargez d\'abord le fichier de propriétés.'); return; }
+    const { fileId } = parseMaquetteDetails(selectedAudit.details);
+    if (!fileId) { setPropCheckError('Aucun fichier IFC associé à cette maquette.'); return; }
+
+    setPropCheckLoading(true);
+    setPropCheckError(null);
+    setPropCheckResults({});
+
+    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
+    const requests = excelRows
+      .filter(row => row.nomDuType)
+      .map(row => {
+        const catNorm = normalise(row.categorieMoa);
+        const catData = propsCategories.find(pc =>
+          pc.nameNormalised === catNorm ||
+          pc.nameNormalised.includes(catNorm) ||
+          catNorm.includes(pc.nameNormalised)
+        );
+        return { nomDuType: row.nomDuType, properties: catData?.properties ?? [] };
+      })
+      .filter(r => r.properties.length > 0)
+      // déduplique par nomDuType
+      .filter((r, i, arr) => arr.findIndex(x => x.nomDuType === r.nomDuType) === i);
+
+    if (requests.length === 0) {
+      setPropCheckError('Aucune propriété à vérifier — vérifiez que le mapping et les propriétés sont chargés.');
+      setPropCheckLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/check-ifc-props', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId, requests }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+
+      const resultMap: Record<string, PropCheckResult> = {};
+      for (const r of (data.results as PropCheckResult[])) {
+        resultMap[normalise(r.nomDuType)] = r;
+      }
+      setPropCheckResults(resultMap);
+    } catch (err: unknown) {
+      setPropCheckError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPropCheckLoading(false);
+    }
+  }, [selectedAudit, excelRows, propsCategories]);
 
   // ── Import direct : détection auto du format (long ou large) ──────────────
   const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1037,14 +1105,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   useEffect(() => {
     if (!selectedAuditId && audits.length > 0) setSelectedAuditId(audits[0].id);
   }, [audits, selectedAuditId]);
-
   if (loading) return <p className="text-slate-400 italic animate-pulse">Chargement…</p>;
   if (audits.length === 0) return <p className="text-slate-400 italic">Aucune maquette chargée.</p>;
-
-  function mockCellStatus(ifcType: string, prop: string): 'Remplie' | 'Manquante' {
-    const hash = (ifcType + prop).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-    return hash % 5 === 0 ? 'Manquante' : 'Remplie';
-  }
 
   return (
     <div className="space-y-8">
@@ -1272,20 +1334,49 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         )}
         {/* Bouton Valider — actif uniquement si toutes les lignes sont "Validé" */}
         {excelRows.length > 0 && <MappingValidateBar rows={excelRows} onSave={handleSaveMapping} />}
-      </div>      {/* Section 2 — Vérification des Propriétés par Catégorie */}
-      <div>
+      </div>      {/* Section 2 — Vérification des Propriétés par Catégorie */}      <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-xl font-bold text-slate-800">Vérification des Propriétés par Catégorie</h3>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {propsError && <span className="text-xs text-red-500">{propsError}</span>}
+            {propCheckError && <span className="text-xs text-red-500">{propCheckError}</span>}
             {propsLoading && (
               <span className="text-xs text-purple-600 italic flex items-center gap-1.5">
                 <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
                 </svg>
-                Chargement…
+                Détection propriétés…
               </span>
+            )}
+            {propCheckLoading && (
+              <span className="text-xs text-emerald-600 italic flex items-center gap-1.5">
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Lecture du fichier IFC…
+              </span>
+            )}
+            {/* Bouton vérification IFC */}
+            {excelRows.length > 0 && propsCategories && propsCategories.length > 0 && (
+              <button
+                onClick={handleCheckIFCProps}
+                disabled={propCheckLoading || !selectedAudit}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                title={!selectedAudit ? 'Sélectionnez une maquette IFC' : 'Vérifier les propriétés dans le fichier IFC'}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Vérifier dans le fichier IFC
+              </button>
+            )}
+            {/* Résumé résultats */}
+            {Object.keys(propCheckResults).length > 0 && (
+              <button onClick={() => { setPropCheckResults({}); }} className="text-xs text-slate-400 hover:text-red-400 transition-colors" title="Effacer les résultats">
+                ✕ Effacer résultats
+              </button>
             )}
             <input ref={propsFileInputRef} type="file" accept=".xlsx,.xls" onChange={handlePropsExcelImport} className="hidden" />
             <button
@@ -1299,7 +1390,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               Charger fichier propriétés (Excel)
             </button>
           </div>
-        </div>        {(() => {
+        </div>{(() => {
           // ── Catégories MOA issues du mapping Excel ──────────────────────────
           const moaCategories = Array.from(new Set(
             excelRows.map(r => r.categorieMoa).filter(Boolean)
@@ -1346,12 +1437,18 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               )}
 
               {moaCategories.map(cat => {
-                const rowsForCat = excelRows.filter(r => r.categorieMoa === cat);
-                // Propriétés : issues de propsCategories si chargé, sinon categoryProps (défaut)
+                const rowsForCat = excelRows.filter(r => r.categorieMoa === cat);                // Propriétés : issues de propsCategories si chargé, sinon categoryProps (défaut)
                 const props = findProps(cat).length > 0 ? findProps(cat) : (categoryProps[cat] ?? []);
                 const missingOnly = filterMissing[cat] ?? false;
                 const displayedRows = missingOnly
-                  ? rowsForCat.filter(obj => props.some(p => mockCellStatus(obj.type || obj.nomDuType, p) === 'Manquante'))
+                  ? rowsForCat.filter(obj => {
+                      const check = propCheckResults[normalise(obj.nomDuType)];
+                      if (!check) return false; // pas encore vérifié → masqué en mode "manquants"
+                      return props.some(p => {
+                        const val = check.props[p];
+                        return val === null || val === undefined || val === '';
+                      });
+                    })
                   : rowsForCat;
 
                 const hasProps = props.length > 0;
@@ -1376,8 +1473,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                       </button>
                     </div>
 
-                    {/* Tableau */}
-                    <div className="overflow-x-auto">
+                    {/* Tableau */}                <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
                         <thead>
                           <tr className="bg-slate-50 border-b border-slate-200">
@@ -1386,7 +1482,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[120px]">Type IFC</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[90px]">Validation</th>
                             {props.map(p => (
-                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[100px] border-l border-slate-200 bg-indigo-50/60 leading-tight">{p}</th>
+                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[110px] border-l border-slate-200 bg-indigo-50/60 leading-tight">{p}</th>
                             ))}
                           </tr>
                         </thead>
@@ -1394,10 +1490,24 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                           {displayedRows.map((obj, oi) => {
                             const isValide    = obj.validation === 'Validé';
                             const isNonValide = obj.validation.startsWith('Non validé');
+                            // Cherche les résultats IFC pour ce nomDuType
+                            const checkResult = propCheckResults[normalise(obj.nomDuType)];
+                            const hasResults  = !!checkResult;
                             return (
                               <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-indigo-50/20 transition-colors`}>
                                 <td className="px-4 py-2.5 text-slate-600 leading-snug">{obj.composant || <span className="text-slate-300 italic">—</span>}</td>
-                                <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug">{obj.nomDuType || <span className="text-slate-300 italic">—</span>}</td>
+                                <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug">
+                                  {obj.nomDuType || <span className="text-slate-300 italic">—</span>}
+                                  {hasResults && checkResult.instanceCount === 0 && (
+                                    <div className="text-[10px] text-amber-500 font-normal mt-0.5 flex items-center gap-1">
+                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                      Non trouvé dans l&apos;IFC
+                                    </div>
+                                  )}
+                                  {hasResults && checkResult.instanceCount > 0 && (
+                                    <div className="text-[10px] text-slate-400 font-normal mt-0.5">{checkResult.instanceCount} instance{checkResult.instanceCount > 1 ? 's' : ''}</div>
+                                  )}
+                                </td>
                                 <td className="px-4 py-2.5">
                                   <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
                                 </td>
@@ -1409,12 +1519,40 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                   ) : <span className="text-slate-300 italic text-[11px]">—</span>}
                                 </td>
                                 {props.map(p => {
-                                  const status = mockCellStatus(obj.type || obj.nomDuType, p);
+                                  if (propCheckLoading) {
+                                    return (
+                                      <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-indigo-50/20">
+                                        <span className="inline-block w-4 h-4 rounded bg-slate-200 animate-pulse mx-auto" />
+                                      </td>
+                                    );
+                                  }
+                                  if (!hasResults) {
+                                    // Pas encore vérifié : cellule neutre
+                                    return (
+                                      <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-indigo-50/10">
+                                        <span className="text-slate-300 text-[10px]">—</span>
+                                      </td>
+                                    );
+                                  }
+                                  const val = checkResult.props[p];
+                                  const isPresent = val !== null && val !== undefined && val !== '';
                                   return (
-                                    <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-indigo-50/20">
-                                      {status === 'Remplie'
-                                        ? <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 mx-auto"><CheckCircle className="h-3.5 w-3.5" /></span>
-                                        : <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-50 text-red-400 mx-auto"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></span>}
+                                    <td key={p} className={`px-3 py-2.5 text-center border-l border-slate-100 ${isPresent ? 'bg-emerald-50/40' : 'bg-red-50/30'}`}>
+                                      {isPresent ? (
+                                        <div className="flex flex-col items-center gap-0.5">
+                                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 mx-auto mb-0.5">
+                                            <CheckCircle className="h-3 w-3" />
+                                          </span>
+                                          <span className="text-[10px] text-emerald-700 font-medium leading-tight max-w-[100px] truncate" title={val}>{val}</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex flex-col items-center gap-0.5">
+                                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-100 text-red-400 mx-auto mb-0.5">
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                          </span>
+                                          <span className="text-[10px] text-red-400 font-medium">Manquante</span>
+                                        </div>
+                                      )}
                                     </td>
                                   );
                                 })}
