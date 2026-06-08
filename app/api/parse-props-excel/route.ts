@@ -25,21 +25,27 @@ export async function POST(req: NextRequest) {
 
       // ── Détection du format ──────────────────────────────────────────────
       // Format LONG : 1 ligne par propriété, colonnes "Catégorie d'objet" + "Propriété"
-      // Format LARGE : plusieurs feuilles, 1 onglet = 1 catégorie
-      const firstSheet = wb.Sheets[wb.SheetNames[0]];
-      const firstRows: unknown[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-      const firstHeaders = ((firstRows[0] ?? []) as unknown[]).map(h => normalise(String(h ?? '')));
+      // Format LARGE : plusieurs feuilles, 1 onglet = 1 catégorie      // ── Cherche un onglet au format long parmi toutes les feuilles ──────────
+      // Format long : colonne "Catégories MOA" (ou "Catégorie d'objet") + "Propriété - Paramètre IFC"
+      let longSheetRows: unknown[][] | null = null;
 
-      const isLongFormat =
-        firstHeaders.some(h => h.includes('categorie') && h.includes('objet')) &&
-        firstHeaders.some(h => h.includes('propriete') || h.includes('parametre'));
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName];
+        const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const hdrs = ((rows[0] ?? []) as unknown[]).map(h => normalise(String(h ?? '')));
+        const hasCat  = hdrs.some(h => h.includes('categorie') && (h.includes('moa') || h.includes('objet')));
+        const hasProp = hdrs.some(h => h.includes('propriete') || h.includes('parametre'));
+        if (hasCat && hasProp) { longSheetRows = rows; break; }
+      }
 
-      if (isLongFormat) {
+      const isLongFormat = longSheetRows !== null;
+
+      if (isLongFormat && longSheetRows) {
         // ── FORMAT LONG : 1 feuille, 1 ligne par propriété ──────────────────
-        const headers = ((firstRows[0] ?? []) as unknown[]).map(h => String(h ?? '').trim());
+        const headers = ((longSheetRows[0] ?? []) as unknown[]).map(h => String(h ?? '').trim());
         const rawHeaders = headers.map(h => normalise(h));
-
-        const colCat  = rawHeaders.findIndex(h => h.includes('categorie') && h.includes('objet'));
+        // Accepte "Catégories MOA", "Catégorie d'objet", etc.
+        const colCat  = rawHeaders.findIndex(h => h.includes('categorie') && (h.includes('moa') || h.includes('objet')));
         const colIfc  = rawHeaders.findIndex(h => (h.includes('classe') || h.includes('entite')) && h.includes('ifc'));
         const colProp = rawHeaders.findIndex(h => h.includes('propriete') || h.includes('parametre'));
 
@@ -48,10 +54,8 @@ export async function POST(req: NextRequest) {
         }
 
         type CatData = { ifcClasses: Set<string>; properties: string[] };
-        const result: Record<string, CatData> = {};
-
-        for (let i = 1; i < firstRows.length; i++) {
-          const row = firstRows[i] as unknown[];
+        const result: Record<string, CatData> = {};        for (let i = 1; i < longSheetRows.length; i++) {
+          const row = longSheetRows[i] as unknown[];
           const cat  = String(row[colCat]  ?? '').trim();
           const ifc  = colIfc >= 0 ? String(row[colIfc] ?? '').trim() : '';
           const prop = String(row[colProp] ?? '').trim();
