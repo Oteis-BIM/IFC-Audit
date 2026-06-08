@@ -27,12 +27,13 @@ export async function POST(req: NextRequest) {
     const normalise = (s: string) =>
       s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+    const colComposant = headers.findIndex((h: string) => normalise(h) === normalise('Composant'));
     const colNom  = headers.findIndex((h: string) => normalise(h) === normalise('Nom du type'));
     const colType = headers.findIndex((h: string) => normalise(h) === normalise('Type'));
-    // Accepte : "Catégorie MOA", "Catégorie TND", "Par composants TND", "CategorieMOA"…
+    // Accepte : "Catégorie MOA", "Catégorie TND", "IFC-AUDIT_Mappage Catégorie TND*", "CategorieMOA"…
     const colTnd  = headers.findIndex((h: string) => {
       const n = normalise(h);
-      return n.includes('categoriemoa') || n.includes('categorietnd') || n.includes('parcomposantstnd') || n.includes('categorymoa');
+      return n.includes('categoriemoa') || n.includes('categorietnd') || n.includes('parcomposantstnd') || n.includes('categorymoa') || n.includes('ifcaudit');
     });
 
     if (colNom === -1 || colType === -1 || colTnd === -1) {
@@ -47,18 +48,19 @@ export async function POST(req: NextRequest) {
     }
 
     const seen = new Set<string>();
-    const parsed: { nomDuType: string; type: string; categorieTnd: string }[] = [];
+    const parsed: { composant: string; nomDuType: string; type: string; categorieTnd: string }[] = [];
 
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
+      const composant = colComposant >= 0 ? String(r[colComposant] ?? '').trim() : '';
       const nom = String(r[colNom]  ?? '').trim();
       const typ = String(r[colType] ?? '').trim();
       const tnd = String(r[colTnd]  ?? '').trim();
       if (!nom && !typ) continue;
-      const key = `${nom}||${typ}||${tnd}`;
+      const key = `${composant}||${nom}||${typ}||${tnd}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      parsed.push({ nomDuType: nom, type: typ, categorieTnd: tnd });
+      parsed.push({ composant, nomDuType: nom, type: typ, categorieTnd: tnd });
     }
 
     if (parsed.length === 0) {

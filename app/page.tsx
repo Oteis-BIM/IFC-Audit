@@ -492,6 +492,7 @@ type MappingRow = { ifcType: string; category: string; rule: MappingRule; aiStat
 
 // Ligne issue du fichier Excel de mappage
 type ExcelMappingRow = {
+  composant:    string;
   nomDuType:    string;
   type:         string;
   categorieMoa: string;
@@ -908,12 +909,11 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     try {
       const res  = await fetch('/api/parse-excel', { method: 'POST', body: formData });
       const data = await res.json();
-      if (!res.ok) { setImportStatus({ ok: false, msg: data.error ?? `Erreur ${res.status}` }); return; }
-
-      const parsed: { nomDuType: string; type: string; categorieTnd: string }[] = data.rows ?? [];
+      if (!res.ok) { setImportStatus({ ok: false, msg: data.error ?? `Erreur ${res.status}` }); return; }      const parsed: { composant: string; nomDuType: string; type: string; categorieTnd: string }[] = data.rows ?? [];
       const opts:   string[] = data.tndOptions ?? [];
 
       const rows: ExcelMappingRow[] = parsed.map(r => ({
+        composant:    r.composant,
         nomDuType:    r.nomDuType,
         type:         r.type,
         categorieMoa: r.categorieTnd,
@@ -1144,9 +1144,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[30%]">Nom du type</th>
-                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[16%]">Type</th>
+                <tr className="bg-slate-50 border-b border-slate-200">                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Nom du type</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[18%]">Composants Solibri</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[14%]">Type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Catégorie MOA</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation / Commentaires</th>
                 </tr>
@@ -1156,14 +1156,17 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                   const isNonValide = row.validation.startsWith('Non validé');
                   const isValide    = row.validation === 'Validé';
                   return (
-                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/20 transition-colors`}>
-
-                      {/* Col 1 — Nom du type */}
+                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/20 transition-colors`}>                      {/* Col 1 — Nom du type */}
                       <td className="px-5 py-2.5 text-xs text-slate-800 font-medium leading-snug">
                         {row.nomDuType || <span className="text-slate-300 italic">—</span>}
                       </td>
 
-                      {/* Col 2 — Type */}
+                      {/* Col 2 — Composants Solibri */}
+                      <td className="px-5 py-2.5 text-xs text-slate-600 leading-snug">
+                        {row.composant || <span className="text-slate-300 italic">—</span>}
+                      </td>
+
+                      {/* Col 3 — Type */}
                       <td className="px-5 py-2.5">
                         <span className="inline-block bg-blue-50 text-blue-700 text-[11px] font-semibold px-2.5 py-0.5 rounded-full font-mono">
                           {row.type || <span className="italic font-normal text-slate-300">—</span>}
