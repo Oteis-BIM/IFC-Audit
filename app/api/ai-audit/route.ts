@@ -278,9 +278,8 @@ function extractIfcContent(raw: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const { fileId, fileName, discipline, criteria, ngfOffsetMm } = await req.json();
-    type Criterion = { id: string; label: string; expected: string };
+  try {    const { fileId, fileName, discipline, criteria, ngfOffsetMm } = await req.json();
+    type Criterion = { id: string; label: string; expected: string; description?: string };
 
     // Dériver l'offset NGF depuis le critère 3.5 (Élévation Z attendue = niveau NGF du projet)
     // Priorité : paramètre explicite ngfOffsetMm > critère 3.5 attendu
@@ -378,43 +377,65 @@ export async function POST(req: NextRequest) {
         : '- Aucun niveau trouve',
     ].join('\n');
 
-    const criteriaText = criteriaList.map(c => `- ${c.id} | ${c.label} | Attendu : ${c.expected}`).join('\n');
-    const criteriaIds = criteriaList.map(c => c.id).join(', ');
-
-    const systemPrompt = `Tu es un expert BIM et auditeur de maquettes IFC selon le referentiel OTEIS.
+    const criteriaText = criteriaList.map(c => {
+      const expectedPart = c.expected
+        ? `Valeur exacte attendue : "${c.expected}"`
+        : c.description
+        ? `Attendu (guide) : ${c.description}`
+        : 'Attendu : non renseigné';
+      return `- ${c.id} | ${c.label} | ${expectedPart}`;
+    }).join('\n');
+    const criteriaIds = criteriaList.map(c => c.id).join(', ');    const systemPrompt = `Tu es un expert BIM et auditeur de maquettes IFC selon le referentiel OTEIS.
 Tu recois des faits extraits directement du fichier IFC par un parser cote serveur (valeurs 100% fiables).
 Compare ces valeurs aux criteres attendus et retourne un statut de conformite.
 
 Statuts possibles :
-- "ok"      : valeur trouvee conforme a l attendu
-- "warning" : partiellement conforme ou present mais incomplet
-- "error"   : non conforme, absent ou vide
+- "ok"      : valeur trouvee et conforme
+- "warning" : presente mais partiellement conforme ou incomplete
+- "error"   : non conforme, absente ou vide
 - "na"      : non applicable pour cette discipline
-- "unclear" : impossible a verifier
+- "unclear" : impossible a verifier sans intervention humaine
 
-Regles de comparaison :
-- Champs texte (Name, LongName, Description, Phase) : compare exactement la valeur extraite a la valeur attendue. Vide ou absent -> "error".
-- Coordonnees numeriques (en mm) : si l attendu est un nombre, compare numeriquement (ignorer les decimales si l entier est identique). Egal -> "ok", different -> "error".
-- Pour les criteres 2.x, 3.x et 4.x : utilise UNIQUEMENT les faits extraits ci-dessus, jamais l extrait IFC brut.
-- Pour les criteres 5.x : utilise UNIQUEMENT les altimetries NGF de la section IFCBUILDINGSTOREY ci-dessus (valeurs en mm NGF calculees par le parser). NE JAMAIS utiliser les elevations brutes de l extrait IFC. Tolerance : ±50 mm.
-- Toujours indiquer dans le commentaire : la valeur trouvee ET la valeur attendue.
+DISTINCTION IMPORTANT entre deux types d attendu :
+
+1. "Valeur exacte attendue" : une valeur precise a comparer mot pour mot (ex: code projet, coordonnee numerique).
+   -> Comparer strictement. Si different -> "error". Si identique -> "ok". Si vide dans IFC -> "error".
+
+2. "Attendu (guide)" : une description de ce qui devrait etre renseigne (pas de valeur exacte connue).
+   -> Verifier uniquement si le champ IFC est NON VIDE et pertinent.
+   -> Si le champ est renseigne avec une valeur coherente -> "ok".
+   -> Si vide ou absent -> "error".
+   -> Ne jamais comparer la valeur IFC a la phrase guide elle-meme.
+
+Regles specifiques :
+- Criteres 2.x / 3.1 / 3.2 / 4.1 / 4.2 sans valeur exacte : verifier presence uniquement (non vide = ok, vide = error).
+- Coordonnees numeriques 3.3 / 3.4 / 3.5 : comparer numeriquement si valeur exacte fournie. Sans valeur exacte : verifier presence uniquement.
+- Criteres 5.x : utiliser UNIQUEMENT les altimetries NGF calculees par le parser (section IFCBUILDINGSTOREY). Tolerance ±50 mm.
+- Criteres 6.x et manuels : retourner "unclear" (verification visuelle requise).
+- Pour les criteres 2.x, 3.x, 4.x : utiliser UNIQUEMENT les faits extraits, jamais l extrait IFC brut.
+- Toujours indiquer dans le commentaire : la valeur trouvee ET ce qui etait attendu.
 - IDs numeriques uniquement : "2.1", "3.3", jamais "B2.1" ou "C3.3".
 
 Format de reponse JSON strict :
 {
-  "2.1": { "status": "ok",    "comment": "Name : '100024' conforme a l attendu '100024'." },
-  "3.3": { "status": "ok",    "comment": "Global Y : 1371437363 mm conforme a l attendu 1371437363 mm." },
-  "3.5": { "status": "error", "comment": "Global Z : 0 mm - attendu : 47300 mm." }
-}`;
-
-    const userPrompt = `Fichier : ${fileName} | Discipline : ${discipline || 'non precisee'}
+  "2.1": { "status": "ok",      "comment": "Name : 'MON_CODE' - champ renseigne et conforme." },
+  "2.2": { "status": "error",   "comment": "LongName : (vide) - champ attendu non renseigne." },
+  "3.3": { "status": "ok",      "comment": "Global Y : 1371437363 mm conforme a l attendu 1371437363 mm." },
+  "6.1": { "status": "unclear", "comment": "Verification visuelle requise - non verifiable automatiquement." }
+}`;    const userPrompt = `Fichier : ${fileName} | Discipline : ${discipline || 'non precisee'}
 
 ${factsBlock}
 
-Criteres a evaluer (ID | Libelle | Attendu) :
+Criteres a evaluer (ID | Libelle | Type d'attendu) :
 ${criteriaText}
 
-Extrait IFC brut (pour les criteres hors 2.x et 3.x uniquement) :
+RAPPEL : 
+- Si "Valeur exacte attendue" → comparer strictement valeur IFC vs valeur attendue.
+- Si "Attendu (guide)" → verifier uniquement que le champ IFC est NON VIDE et pertinent.
+- Si "Attendu : non renseigne" → verifier presence uniquement (non vide = ok).
+- Criteres 6.x → toujours "unclear" (verification visuelle).
+
+Extrait IFC brut (pour les criteres 1.x, 6.x uniquement) :
 \`\`\`
 ${ifcContent}
 \`\`\`

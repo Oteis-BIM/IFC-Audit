@@ -2023,13 +2023,15 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
       });
     }, 300);
 
-    try {
-      // Construire la liste des critères avec les valeurs attendues (customExpected pour 2.1-2.4)
+    try {      // Construire la liste des critères :
+      // - expected : valeur exacte saisie par l'utilisateur (peut être vide)
+      // - description : phrase guide affichée dans la colonne "Attendu"
       const criteria = RAPPORT_CATEGORIES.flatMap(cat =>
         cat.items.map(item => ({
           id: item.id,
           label: item.label,
-          expected: customExpected[item.id]?.trim() || item.expected,
+          expected: customExpected[item.id]?.trim() ?? '',
+          description: item.expected,
         }))
       );
       const res = await fetch('/api/ai-audit', {
@@ -2738,29 +2740,34 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
                                 return (
                                   <tr key={item.id} className={`border-t border-slate-100 ${ii % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                                     <td className="px-3 py-2 text-[10px] text-slate-400 font-mono align-top whitespace-nowrap">{item.id}</td>
-                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>
-                                    <td className="px-3 py-3 align-top">
+                                    <td className="px-3 py-2 text-slate-700 font-medium align-top leading-snug">{item.label}</td>                                    <td className="px-3 py-3 align-top">
                                       <div className="text-[10px] text-slate-400 italic mb-1.5 leading-snug">{item.expected}</div>
                                       <input
                                         type="text"
                                         value={val}
                                         onChange={e => setCustomExpected(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                        placeholder="Renseigner l'attendu…"
+                                        placeholder={['3.3','3.4','3.5'].includes(item.id) ? 'ex: 1371437363 (mm)' : ['2.1'].includes(item.id) ? 'ex: PRJ_100024' : 'Valeur exacte attendue…'}
                                         className="w-full text-xs border border-blue-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-300 bg-blue-50"
                                       />
-                                    </td>
-                                    {maquettes.map(m => {
+                                      {!val && (
+                                        <p className="text-[9px] text-orange-400 mt-1 leading-tight">
+                                          ⚠ Sans valeur exacte, l&apos;IA vérifiera uniquement la présence du champ
+                                        </p>
+                                      )}
+                                    </td>{maquettes.map(m => {
                                       const hasExpected = !!(customExpected[item.id]?.trim());
-                                      if (!hasExpected) {
+                                      const st = cells[`${item.id}-${m.id}`] ?? '';
+                                      const hasAiResult = st !== '';
+                                      // N'afficher S/O que si ni l'attendu ni le résultat IA ne sont présents
+                                      if (!hasExpected && !hasAiResult) {
                                         return (
                                           <td key={m.id} className="px-1.5 py-1.5 align-top">
-                                            <div className="w-full h-7 rounded text-[10px] font-semibold flex items-center justify-center bg-slate-100 text-slate-400 italic" title="Aucune exigence renseignée">
+                                            <div className="w-full h-7 rounded text-[10px] font-semibold flex items-center justify-center bg-slate-100 text-slate-400 italic" title="Aucune exigence renseignée — lancez l'analyse IA">
                                               S/O
                                             </div>
                                           </td>
                                         );
                                       }
-                                      const st = cells[`${item.id}-${m.id}`] ?? '';
                                       const cycle: CellStatus[] = ['', 'ok', 'warning', 'error', 'na', 'unclear'];
                                       const next = () => setCell(item.id, m.id, cycle[(cycle.indexOf(st) + 1) % cycle.length]);
                                       const { bg, label } = statusMap[st];
