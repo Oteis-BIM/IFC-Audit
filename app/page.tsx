@@ -1038,20 +1038,44 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     }
 
     try {
+      const startedAt = Date.now();
+      const workUnits = Math.max(1, requests.reduce((acc, request) => acc + 1 + request.properties.length, 0));
+      const previousEstimate = (() => {
+        try {
+          return JSON.parse(localStorage.getItem('ifc-props-check-estimate') ?? 'null') as
+            | { workUnits?: number; durationMs?: number }
+            | null;
+        } catch {
+          return null;
+        }
+      })();
+      const defaultEstimateMs = Math.min(240000, Math.max(18000, 8000 + workUnits * 180));
+      const estimatedMs =
+        previousEstimate?.workUnits && previousEstimate.durationMs
+          ? Math.min(300000, Math.max(12000, previousEstimate.durationMs * (workUnits / previousEstimate.workUnits)))
+          : defaultEstimateMs;
+
       setPropCheckProgress({
         value: 18,
         label: `${requests.length} type${requests.length > 1 ? 's' : ''} a analyser`,
       });
       propCheckProgressTimer.current = setInterval(() => {
-        setPropCheckProgress(prev => {
-          const nextValue = Math.min(92, prev.value + (prev.value < 55 ? 4 : prev.value < 78 ? 2 : 1));
+        const elapsedMs = Date.now() - startedAt;
+        const ratio = elapsedMs / estimatedMs;
+        const value = ratio <= 1
+          ? 18 + Math.min(77, ratio * 77)
+          : 95 + Math.min(3, (1 - Math.exp(-(ratio - 1))) * 3);
+        const remainingSeconds = Math.max(1, Math.ceil((estimatedMs - elapsedMs) / 1000));
+
+        setPropCheckProgress(() => {
           const label =
-            nextValue < 35 ? 'Transmission a Vercel'
-            : nextValue < 78 ? 'Lecture IFC avec ifcopenshell'
-            : 'Consolidation des resultats';
-          return { value: nextValue, label };
+            ratio < 0.12 ? 'Transmission a Vercel'
+            : ratio < 0.9 ? `Lecture IFC avec ifcopenshell - environ ${remainingSeconds}s restantes`
+            : ratio <= 1 ? 'Consolidation des resultats'
+            : 'Finalisation - traitement plus long que prevu';
+          return { value, label };
         });
-      }, 900);
+      }, 500);
 
       const res = await fetch('/api/check-ifc-props', {
         method: 'POST',
@@ -1067,6 +1091,10 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         resultMap[normalise(r.nomDuType)] = r;
       }
       setPropCheckResults(resultMap);
+      localStorage.setItem('ifc-props-check-estimate', JSON.stringify({
+        workUnits,
+        durationMs: Date.now() - startedAt,
+      }));
       setPropCheckProgress({ value: 100, label: 'Verification terminee' });
     } catch (err: unknown) {
       setPropCheckError(err instanceof Error ? err.message : String(err));
@@ -1524,21 +1552,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         Manquants seulement
                       </button>
                     </div>
-
-                    {propCheckLoading && (
-                      <div className="border-b border-slate-200 bg-emerald-50/60 px-5 py-2">
-                        <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-emerald-800">
-                          <span className="truncate">{propCheckProgress.label || 'Verification IFC en cours'}</span>
-                          <span className="shrink-0">{Math.round(propCheckProgress.value)}%</span>
-                        </div>
-                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white border border-emerald-100">
-                          <div
-                            className="h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-out"
-                            style={{ width: `${Math.max(4, propCheckProgress.value)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
 
                     {/* Tableau */}                <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
