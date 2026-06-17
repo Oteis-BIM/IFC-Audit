@@ -65,6 +65,35 @@ function splitCompoundPropertyName(propName: string): string[] {
   return [...variants];
 }
 
+const TYPE_NAME_PROPERTIES = [
+  'Nom du type',
+  'Type Name',
+  'TypeName',
+  'IfcType',
+  'Type IFC',
+  'Family and Type',
+  'Famille et type',
+  'Name',
+];
+
+function isLikelyElementEntity(body: string): boolean {
+  const entityTypeName = body.split('(')[0].toUpperCase();
+  return (
+    entityTypeName.startsWith('IFC') &&
+    !entityTypeName.startsWith('IFCREL') &&
+    !entityTypeName.startsWith('IFCPROPERTY') &&
+    !entityTypeName.startsWith('IFCQUANTITY') &&
+    !entityTypeName.startsWith('IFCMATERIAL') &&
+    entityTypeName !== 'IFCPROPERTYSET' &&
+    entityTypeName !== 'IFCELEMENTQUANTITY' &&
+    entityTypeName !== 'IFCOWNERHISTORY' &&
+    entityTypeName !== 'IFCAPPLICATION' &&
+    entityTypeName !== 'IFCORGANIZATION' &&
+    entityTypeName !== 'IFCPERSON' &&
+    entityTypeName !== 'IFCPOSTALADDRESS'
+  );
+}
+
 function lookupProp(allProps: Map<string, string>, propName: string): string | null {
   const matches: string[] = [];
 
@@ -259,6 +288,38 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
     return result;
   }
 
+  let typePropertySearchEntries: { id: string; keys: string[] }[] | null = null;
+  function getTypePropertySearchEntries(): { id: string; keys: string[] }[] {
+    if (typePropertySearchEntries) return typePropertySearchEntries;
+    typePropertySearchEntries = [];
+    for (const [id, body] of index) {
+      if (!isLikelyElementEntity(body)) continue;
+
+      const entityName = stepStr(parseArgs(body)[2] ?? '');
+      const allProps = getEntityProps(id);
+      const candidateValues = [
+        entityName,
+        ...TYPE_NAME_PROPERTIES.map((propName) => lookupProp(allProps, propName) ?? ''),
+      ].filter(Boolean);
+
+      const candidateKeys = candidateValues.map(normalise).filter(Boolean);
+      if (candidateKeys.length > 0) typePropertySearchEntries.push({ id, keys: [...new Set(candidateKeys)] });
+    }
+    return typePropertySearchEntries;
+  }
+
+  function findIdsByTypeProperties(searchKeys: string[]): string[] {
+    const ids = getTypePropertySearchEntries()
+      .filter((entry) => entry.keys.some((candidateKey) => searchKeys.some((searchKey) =>
+        candidateKey === searchKey ||
+        candidateKey.includes(searchKey) ||
+        searchKey.includes(candidateKey)
+      )))
+      .map((entry) => entry.id);
+
+    return [...new Set(ids)];
+  }
+
   return requests.map((request) => {
     const searchKeys = [normalise(request.nomDuType)];
     if (request.type) {
@@ -284,6 +345,11 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
         }
         if (matchedIds.length > 0) break;
       }
+    }
+
+    const idsFromTypeProperties = findIdsByTypeProperties(searchKeys);
+    if (idsFromTypeProperties.length > 0) {
+      matchedIds = idsFromTypeProperties;
     }
 
     const expandedIds = new Set(matchedIds);
