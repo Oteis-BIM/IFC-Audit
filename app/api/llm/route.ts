@@ -1,28 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import OpenAI from 'openai';
 import { extractIfcFacts, buildFactsBlock, extractIfcQuantities, buildQuantitiesBlock, extractIfcPsets, buildPsetsBlock } from '@/lib/ifc-parser';
 import { getSupabase } from '@/lib/supabase';
-
-async function refreshBoxToken(refreshToken: string) {
-  const res = await fetch('https://api.box.com/oauth2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: process.env.BOX_CLIENT_ID!,
-      client_secret: process.env.BOX_CLIENT_SECRET!,
-    }),
-  });
-  return res.json();
-}
+import { fetchBoxFileContent, getBoxAuthFromCookies, setBoxTokenCookies } from '@/lib/box';
 
 async function fetchIfcRaw(fileId: string, accessToken: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://api.box.com/2.0/files/${fileId}/content`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const res = await fetchBoxFileContent(fileId, accessToken);
     if (!res.ok) return null;
     const buffer = await res.arrayBuffer();
     return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
@@ -99,13 +83,8 @@ export async function POST(req: NextRequest) {
     });
 
     // Token Box pour télécharger les fichiers IFC
-    const cookieStore = await cookies();
-    let accessToken = cookieStore.get('box_access_token')?.value;
-    const refreshToken = cookieStore.get('box_refresh_token')?.value;
-    if (!accessToken && refreshToken) {
-      const tokens = await refreshBoxToken(refreshToken);
-      accessToken = tokens.access_token;
-    }
+    const auth = await getBoxAuthFromCookies();
+    const accessToken = auth?.accessToken;
 
     // Parser chaque maquette en parallèle
     const contextParts = await Promise.all(
@@ -164,11 +143,13 @@ export async function POST(req: NextRequest) {
       messages,
     });
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       content: completion.choices[0]?.message?.content ?? '',
       model: completion.model,
       tokensUsed: completion.usage?.total_tokens ?? 0,
     });
+    if (auth?.refreshedTokens) setBoxTokenCookies(response, auth.refreshedTokens);
+    return response;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });

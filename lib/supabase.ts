@@ -14,6 +14,6 @@ export function getSupabase(): SupabaseClient {
 // Compatibilité avec l'import existant
 export const supabase = new Proxy({} as SupabaseClient, {
   get(_target, prop) {
-    return (getSupabase() as any)[prop]
+    return (getSupabase() as unknown as Record<PropertyKey, unknown>)[prop]
   }
 })

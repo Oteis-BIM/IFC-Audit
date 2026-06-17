@@ -640,7 +640,7 @@ export function extractIfcPsets(raw: string): IfcPsetSummary {
   const elementPropsMap = new Map<string, Set<string>>();
 
   for (const [ref, elInfo] of elementMap) {
-    const { ifcType, name } = elInfo;
+    const { ifcType } = elInfo;
     countByType[ifcType] = (countByType[ifcType] ?? 0) + 1;
     const allProps: Record<string, string> = {};
     for (const pRef of (elementPsetRefs.get(ref) ?? [])) {

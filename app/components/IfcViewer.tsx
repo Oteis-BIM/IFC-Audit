@@ -274,7 +274,7 @@ export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles
 
     loadQueueRef.current.push(task);
     runQueue();
-  }, [recenter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recenter]);
 
   // ─── Réagir aux changements de la liste de fichiers ───────────────────────
   useEffect(() => {

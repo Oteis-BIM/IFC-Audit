@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, FileSpreadsheet, Sparkles
+  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, Sparkles
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
 import type { FileEntry } from './components/IfcViewer';
@@ -196,6 +196,7 @@ ${maquettesContext}`;
   const [agentIfcPath, setAgentIfcPath] = useState('');
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSystemPrompt(baseSystemPrompt);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audits]);
@@ -254,14 +255,14 @@ ${maquettesContext}`;
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}      <div>
         <h2 className="text-3xl font-bold text-slate-900">LLM</h2>
-        <p className="text-slate-500 text-sm mt-1">Interrogez l'IA sur les {audits.length > 0 ? `${audits.length} maquette${audits.length > 1 ? 's' : ''} chargée${audits.length > 1 ? 's' : ''}` : 'maquettes chargées'}</p>
+        <p className="text-slate-500 text-sm mt-1">Interrogez l&apos;IA sur les {audits.length > 0 ? `${audits.length} maquette${audits.length > 1 ? 's' : ''} chargée${audits.length > 1 ? 's' : ''}` : 'maquettes chargées'}</p>
       </div>
 
       {/* Bandeau maquettes chargées */}
       {audits.length === 0 ? (
         <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 text-sm text-amber-700">
           <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>Aucune maquette chargée — chargez d'abord une maquette IFC pour interroger l'IA.</span>
+          <span>Aucune maquette chargée — chargez d&apos;abord une maquette IFC pour interroger l&apos;IA.</span>
         </div>
       ) : (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 space-y-1">
@@ -326,8 +327,8 @@ ${maquettesContext}`;
             <span className="text-[10px] text-emerald-500 ml-auto">Route : /api/agent-ifc → scripts/agent_ifc.py</span>
           </div>
           <p className="text-[11px] text-emerald-600">
-            L'agent lit le fichier IFC localement, appelle OpenAI avec Function Calling pour vérifier les propriétés Pset en 2 passes.
-            <br />Exemples : <em>"La propriété GMAO_Marque est-elle renseignée pour les équipements ?"</em> · <em>"Taux de conformité INF_Protection ?"</em>
+            L&apos;agent lit le fichier IFC localement, appelle OpenAI avec Function Calling pour vérifier les propriétés Pset en 2 passes.
+            <br />Exemples : <em>&quot;La propriété GMAO_Marque est-elle renseignée pour les équipements ?&quot;</em> · <em>&quot;Taux de conformité INF_Protection ?&quot;</em>
           </p>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-emerald-700">Chemin local vers le fichier .ifc</label>
@@ -905,6 +906,10 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const propsFileInputRef = useRef<HTMLInputElement>(null);
+  const [propsLoading, setPropsLoading] = useState(false);
+  const [propsError, setPropsError] = useState<string | null>(null);
+  const [propsCategories, setPropsCategories] = useState<PropsCategoryData[] | null>(null);
 
   // ── Import du fichier Excel via API route (xlsx côté serveur) ────────────
   const handleExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -957,7 +962,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     } catch (err: unknown) {
       setImportStatus({ ok: false, msg: `Erreur réseau : ${err instanceof Error ? err.message : String(err)}` });
     }
-  }, []);
+  }, [setPropsCategories, setPropsError, setPropsLoading]);
   // ── Relancer l'analyse manuellement ─────────────────────────────────────
   const handleRerunAnalysis = useCallback(async () => {
     setImportStatus({ ok: true, msg: 'Relance de l\'analyse IA…' });
@@ -977,11 +982,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     );
     if (error) throw new Error(error.message);
   }, [excelRows]);
-  // ── Import Excel propriétés MOA ───────────────────────────────────────────
-  const propsFileInputRef = useRef<HTMLInputElement>(null);
-  const [propsLoading, setPropsLoading] = useState(false);
-  const [propsError, setPropsError] = useState<string | null>(null);
-  const [propsCategories, setPropsCategories] = useState<PropsCategoryData[] | null>(null);
 
   // ── Vérification IFC des propriétés ──────────────────────────────────────
   // clé = normalise(nomDuType) → résultat de vérification
@@ -1101,13 +1101,10 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     } finally {
       setPropsLoading(false);
     }
-  }, []);
+  }, [setPropsCategories, setPropsError, setPropsLoading]);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
 
-  useEffect(() => {
-    if (!selectedAuditId && audits.length > 0) setSelectedAuditId(audits[0].id);
-  }, [audits, selectedAuditId]);
   if (loading) return <p className="text-slate-400 italic animate-pulse">Chargement…</p>;
   if (audits.length === 0) return <p className="text-slate-400 italic">Aucune maquette chargée.</p>;
 
@@ -2849,7 +2846,10 @@ export default function Dashboard() {
     if (error) console.error(error);
     else setAudits(data || []);
     setLoading(false);
-  }  useEffect(() => {
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchAudits();
     // Vérifier si déjà connecté à Box
     fetch('/api/box/token').then(r => {
@@ -3224,7 +3224,7 @@ export default function Dashboard() {
           <p className="text-xs text-purple-300 uppercase">QC Haute Précision</p>
         </div>        <nav className="flex-1 px-4 space-y-1">
           <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-purple-200 hover:bg-white/10 rounded-lg">
-            <LayoutDashboard className="mr-3 h-5 w-5" /> Vue d'ensemble
+            <LayoutDashboard className="mr-3 h-5 w-5" /> Vue d&apos;ensemble
           </button>
           <button className="w-full flex items-center px-4 py-3 text-sm font-medium text-purple-200 hover:bg-white/10 rounded-lg">
             <Layers className="mr-3 h-5 w-5" /> Contrôle Structure Maquette

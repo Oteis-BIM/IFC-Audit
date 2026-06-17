@@ -1,20 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBoxFolderId, refreshBoxToken, setBoxTokenCookies } from '@/lib/box';
 
 export const maxDuration = 300;
-
-async function refreshAccessToken(refreshToken: string) {
-  const res = await fetch('https://api.box.com/oauth2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: process.env.BOX_CLIENT_ID!,
-      client_secret: process.env.BOX_CLIENT_SECRET!,
-    }),
-  });
-  return res.json();
-}
 
 // Upload simple <= 50 MB
 async function simpleUpload(accessToken: string, file: File, folderId: string) {
@@ -110,10 +97,10 @@ export async function POST(req: NextRequest) {
   }
 
   let newAccessToken: string | null = null;
-  let newRefreshToken: string | null = null;
+  let newRefreshToken: string | undefined;
 
   if (!accessToken && refreshToken) {
-    const tokens = await refreshAccessToken(refreshToken);
+    const tokens = await refreshBoxToken(refreshToken);
     if (!tokens.access_token) {
       return NextResponse.json({ error: 'Session Box expirée. Reconnectez-vous.' }, { status: 401 });
     }
@@ -122,7 +109,7 @@ export async function POST(req: NextRequest) {
     newRefreshToken = tokens.refresh_token;
   }
 
-  const folderId = process.env.BOX_FOLDER_ID || '0';
+  const folderId = getBoxFolderId();
   const formData = await req.formData();
   const file = formData.get('file') as File;
   if (!file) return NextResponse.json({ error: 'Aucun fichier' }, { status: 400 });
@@ -142,10 +129,7 @@ export async function POST(req: NextRequest) {
 
     const response = NextResponse.json({ success: true, boxFileId, fileName: file.name, downloadUrl });
 
-    if (newAccessToken) {
-      response.cookies.set('box_access_token', newAccessToken, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 3600, path: '/' });
-      response.cookies.set('box_refresh_token', newRefreshToken!, { httpOnly: true, secure: process.env.NODE_ENV === 'production', maxAge: 60 * 24 * 60 * 60, path: '/' });
-    }
+    if (newAccessToken) setBoxTokenCookies(response, { access_token: newAccessToken, refresh_token: newRefreshToken ?? undefined });
     return response;
 
   } catch (err) {
