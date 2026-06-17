@@ -988,6 +988,17 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   const [propCheckResults, setPropCheckResults] = useState<Record<string, PropCheckResult>>({});
   const [propCheckLoading, setPropCheckLoading] = useState(false);
   const [propCheckError, setPropCheckError] = useState<string | null>(null);
+  const [propCheckProgress, setPropCheckProgress] = useState({ value: 0, label: '' });
+  const propCheckProgressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPropCheckProgress = useCallback(() => {
+    if (propCheckProgressTimer.current) {
+      clearInterval(propCheckProgressTimer.current);
+      propCheckProgressTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopPropCheckProgress, [stopPropCheckProgress]);
 
   const handleCheckIFCProps = useCallback(async () => {
     if (!selectedAudit) { setPropCheckError('Sélectionnez une maquette IFC.'); return; }
@@ -997,6 +1008,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
 
     setPropCheckLoading(true);
     setPropCheckError(null);
+    setPropCheckProgress({ value: 8, label: 'Preparation des controles' });
+    stopPropCheckProgress();
     setPropCheckResults({});    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
     const requests = excelRows
       .filter(row => row.nomDuType)
@@ -1020,10 +1033,26 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     if (requests.length === 0) {
       setPropCheckError('Aucune propriété à vérifier — vérifiez que le mapping et les propriétés sont chargés.');
       setPropCheckLoading(false);
+      setPropCheckProgress({ value: 0, label: '' });
       return;
     }
 
     try {
+      setPropCheckProgress({
+        value: 18,
+        label: `${requests.length} type${requests.length > 1 ? 's' : ''} a analyser`,
+      });
+      propCheckProgressTimer.current = setInterval(() => {
+        setPropCheckProgress(prev => {
+          const nextValue = Math.min(92, prev.value + (prev.value < 55 ? 4 : prev.value < 78 ? 2 : 1));
+          const label =
+            nextValue < 35 ? 'Transmission a Vercel'
+            : nextValue < 78 ? 'Lecture IFC avec ifcopenshell'
+            : 'Consolidation des resultats';
+          return { value: nextValue, label };
+        });
+      }, 900);
+
       const res = await fetch('/api/check-ifc-props', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1031,18 +1060,22 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      setPropCheckProgress({ value: 96, label: 'Mise a jour du tableau' });
 
       const resultMap: Record<string, PropCheckResult> = {};
       for (const r of (data.results as PropCheckResult[])) {
         resultMap[normalise(r.nomDuType)] = r;
       }
       setPropCheckResults(resultMap);
+      setPropCheckProgress({ value: 100, label: 'Verification terminee' });
     } catch (err: unknown) {
       setPropCheckError(err instanceof Error ? err.message : String(err));
+      setPropCheckProgress({ value: 0, label: '' });
     } finally {
+      stopPropCheckProgress();
       setPropCheckLoading(false);
     }
-  }, [selectedAudit, excelRows, propsCategories]);
+  }, [selectedAudit, excelRows, propsCategories, stopPropCheckProgress]);
 
   // ── Import direct : détection auto du format (long ou large) ──────────────
   const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1360,7 +1393,22 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             {/* Input caché conservé pour compatibilité */}
             <input ref={propsFileInputRef} type="file" accept=".xlsx,.xls" onChange={handlePropsExcelImport} className="hidden" />
           </div>
-        </div>{(() => {
+        </div>
+        {propCheckLoading && (
+          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold text-emerald-800">
+              <span>{propCheckProgress.label || 'Verification IFC en cours'}</span>
+              <span>{Math.round(propCheckProgress.value)}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white border border-emerald-100">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-out"
+                style={{ width: `${Math.max(4, propCheckProgress.value)}%` }}
+              />
+            </div>
+          </div>
+        )}
+        {(() => {
           // ── Catégories MOA issues du mapping Excel ──────────────────────────
           const moaCategories = Array.from(new Set(
             excelRows.map(r => r.categorieMoa).filter(Boolean)
@@ -1476,6 +1524,21 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         Manquants seulement
                       </button>
                     </div>
+
+                    {propCheckLoading && (
+                      <div className="border-b border-slate-200 bg-emerald-50/60 px-5 py-2">
+                        <div className="flex items-center justify-between gap-3 text-[11px] font-semibold text-emerald-800">
+                          <span className="truncate">{propCheckProgress.label || 'Verification IFC en cours'}</span>
+                          <span className="shrink-0">{Math.round(propCheckProgress.value)}%</span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white border border-emerald-100">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-out"
+                            style={{ width: `${Math.max(4, propCheckProgress.value)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* Tableau */}                <div className="overflow-x-auto">
                       <table className="w-full text-xs border-collapse">
