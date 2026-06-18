@@ -521,6 +521,18 @@ type PropCheckResult = {
   props:         Record<string, string | null>;
 };
 
+type ParametresSavedState = {
+  auditId: number;
+  fileId: string;
+  fileName: string;
+  discipline: string;
+  excelRows: ExcelMappingRow[];
+  moaOptions: string[];
+  propsCategories: PropsCategoryData[] | null;
+  propCheckResults: Record<string, PropCheckResult>;
+  savedAt: string;
+};
+
 // Helper : normalise pour comparaison (minuscules, sans accents, sans ponctuation)
 function normalise(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -534,10 +546,11 @@ async function callAiAnalysis(
   setRows: React.Dispatch<React.SetStateAction<ExcelMappingRow[]>>,
   setLoading: React.Dispatch<React.SetStateAction<boolean>>,
   setStatus: React.Dispatch<React.SetStateAction<{ ok: boolean; msg: string } | null>>,
-) {
-  if (rows.length === 0) return;
+): Promise<ExcelMappingRow[]> {
+  if (rows.length === 0) return rows;
   setLoading(true);
   setRows(prev => prev.map(r => ({ ...r, validation: '' })));
+  let analyzedRows = rows.map(r => ({ ...r, validation: '' }));
 
   try {
     // Découpe en batches
@@ -571,9 +584,10 @@ async function callAiAnalysis(
         allResults[r.index] = r.validation;
       }
       // Mise à jour progressive du tableau au fil des batches
-      setRows(prev => prev.map((row, i) =>
+      analyzedRows = analyzedRows.map((row, i) =>
         allResults[i] !== undefined ? { ...row, validation: allResults[i] } : row
-      ));
+      );
+      setRows(analyzedRows);
     }
 
     const validated = Object.values(allResults).filter(v => v === 'Validé').length;
@@ -583,6 +597,7 @@ async function callAiAnalysis(
   } finally {
     setLoading(false);
   }
+  return analyzedRows;
 }
 
 // ── Analyse IA d'une seule ligne ──────────────────────────────────────────────
@@ -885,7 +900,7 @@ function MappingValidateBar({ rows, onSave, onCheckProps }: { rows: ExcelMapping
 
 function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean }) {
   const [selectedAuditId, setSelectedAuditId] = useState<number | null>(null);
-  const selectedAudit = audits.find(a => a.id === selectedAuditId) ?? audits[0] ?? null;
+  const selectedAudit = audits.find(a => a.id === selectedAuditId) ?? null;
 
   // Section 2 — mapping IFC legacy
   const [mappingRows, setMappingRows] = useState<MappingRow[]>(() =>
@@ -910,6 +925,128 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   const [propsLoading, setPropsLoading] = useState(false);
   const [propsError, setPropsError] = useState<string | null>(null);
   const [propsCategories, setPropsCategories] = useState<PropsCategoryData[] | null>(null);
+  const [propCheckResults, setPropCheckResults] = useState<Record<string, PropCheckResult>>({});
+  const [propCheckLoading, setPropCheckLoading] = useState(false);
+  const [propCheckError, setPropCheckError] = useState<string | null>(null);
+  const [propCheckProgress, setPropCheckProgress] = useState({ value: 0, label: '' });
+  const [parametresLoading, setParametresLoading] = useState(false);
+  const [parametresSaveStatus, setParametresSaveStatus] = useState<string | null>(null);
+  const propCheckProgressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const selectedAuditIdRef = useRef<number | null>(null);
+
+  const parametresConfigKey = useCallback((auditId: number) => `parametres_maquette_${auditId}`, []);
+
+  const persistParametresState = useCallback(async (overrides: Partial<ParametresSavedState> = {}) => {
+    if (!selectedAudit) return;
+    const { fileId, discipline } = parseMaquetteDetails(selectedAudit.details);
+    if (!fileId) return;
+
+    const payload: ParametresSavedState = {
+      auditId: selectedAudit.id,
+      fileId,
+      fileName: selectedAudit.project_name,
+      discipline,
+      excelRows: overrides.excelRows ?? excelRows,
+      moaOptions: overrides.moaOptions ?? moaOptions,
+      propsCategories: overrides.propsCategories ?? propsCategories,
+      propCheckResults: overrides.propCheckResults ?? propCheckResults,
+      savedAt: new Date().toISOString(),
+    };
+    const value = JSON.stringify(payload);
+    const key = parametresConfigKey(selectedAudit.id);
+    localStorage.setItem(key, value);
+
+    const { error } = await supabase.from('audit_config').upsert(
+      { key, value, updated_at: payload.savedAt },
+      { onConflict: 'key' }
+    );
+    if (error) {
+      console.warn('Supabase audit_config indisponible, sauvegarde locale uniquement :', error.message);
+      setParametresSaveStatus('Sauvegarde locale');
+      return;
+    }
+    setParametresSaveStatus('Sauvegarde Supabase OK');
+    setTimeout(() => setParametresSaveStatus(null), 2500);
+  }, [
+    selectedAudit,
+    excelRows,
+    moaOptions,
+    propsCategories,
+    propCheckResults,
+    parametresConfigKey,
+  ]);
+
+  useEffect(() => {
+    if (audits.length === 0) {
+      selectedAuditIdRef.current = null;
+      queueMicrotask(() => setSelectedAuditId(null));
+      return;
+    }
+    if (!selectedAuditId || !audits.some(a => a.id === selectedAuditId)) {
+      const lastRaw = localStorage.getItem('parametres_selected_audit_id');
+      const lastId = lastRaw ? Number(lastRaw) : null;
+      const nextId = lastId && audits.some(a => a.id === lastId) ? lastId : audits[0].id;
+      selectedAuditIdRef.current = nextId;
+      queueMicrotask(() => setSelectedAuditId(nextId));
+    }
+  }, [audits, selectedAuditId]);
+
+  useEffect(() => {
+    if (!selectedAudit) return;
+    let cancelled = false;
+    const auditId = selectedAudit.id;
+    const auditProjectName = selectedAudit.project_name;
+    const key = parametresConfigKey(auditId);
+    selectedAuditIdRef.current = auditId;
+    localStorage.setItem('parametres_selected_audit_id', String(auditId));
+    queueMicrotask(() => {
+      setParametresLoading(true);
+      setParametresSaveStatus(null);
+    });
+
+    async function loadState() {
+      const { data, error } = await supabase
+        .from('audit_config')
+        .select('value')
+        .eq('key', key)
+        .maybeSingle();
+      const raw = data?.value ?? localStorage.getItem(key);
+      if (error) console.warn('Lecture Supabase audit_config impossible :', error.message);
+      if (cancelled || selectedAuditIdRef.current !== auditId) return;
+
+      if (!raw) {
+        setExcelRows([]);
+        setMoaOptions([]);
+        setPropsCategories(null);
+        setPropCheckResults({});
+        setImportStatus(null);
+        setPropCheckError(null);
+        setParametresLoading(false);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw) as Partial<ParametresSavedState>;
+        setExcelRows(Array.isArray(parsed.excelRows) ? parsed.excelRows : []);
+        setMoaOptions(Array.isArray(parsed.moaOptions) ? parsed.moaOptions : []);
+        setPropsCategories(Array.isArray(parsed.propsCategories) ? parsed.propsCategories : null);
+        setPropCheckResults(parsed.propCheckResults ?? {});
+        setImportStatus({ ok: true, msg: `DonnÃ©es restaurÃ©es pour "${auditProjectName}".` });
+        setPropCheckError(null);
+      } catch {
+        setExcelRows([]);
+        setMoaOptions([]);
+        setPropsCategories(null);
+        setPropCheckResults({});
+        setImportStatus({ ok: false, msg: 'DonnÃ©es sauvegardÃ©es illisibles pour cette maquette.' });
+      } finally {
+        setParametresLoading(false);
+      }
+    }
+
+    loadState();
+    return () => { cancelled = true; };
+  }, [selectedAudit, parametresConfigKey]);
 
   // ── Import du fichier Excel via API route (xlsx côté serveur) ────────────
   const handleExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -935,6 +1072,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         validation:   '',
       }));      setMoaOptions(opts);
       setExcelRows(rows);
+      setPropCheckResults({});
+      setPropsCategories(null);
+      let detectedPropsCategories: PropsCategoryData[] | null = null;
       setImportStatus({ ok: true, msg: `${rows.length} ligne(s) importée(s) depuis "${file.name}" — Détection des propriétés…` });
 
       // ── Auto-détection des propriétés dans le même fichier ───────────────
@@ -947,7 +1087,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         const propsRes = await fetch('/api/parse-props-excel', { method: 'POST', body: propsFormData });
         const propsData = await propsRes.json();
         if (propsRes.ok && propsData.format === 'long' && (propsData.categories?.length ?? 0) > 0) {
-          setPropsCategories(propsData.categories);
+          detectedPropsCategories = propsData.categories;
+          setPropsCategories(detectedPropsCategories);
         }
       } catch {
         // Silent — propriétés non détectées automatiquement
@@ -958,39 +1099,54 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       setImportStatus({ ok: true, msg: `${rows.length} ligne(s) importée(s) depuis "${file.name}" — Lancement de l'analyse IA…` });
 
       // Analyse IA automatique après import
-      await callAiAnalysis(rows, setExcelRows, setAiLoading, setImportStatus);
+      const analyzedRows = await callAiAnalysis(rows, setExcelRows, setAiLoading, setImportStatus);
+      await persistParametresState({
+        excelRows: analyzedRows,
+        moaOptions: opts,
+        propsCategories: detectedPropsCategories,
+        propCheckResults: {},
+      });
     } catch (err: unknown) {
       setImportStatus({ ok: false, msg: `Erreur réseau : ${err instanceof Error ? err.message : String(err)}` });
     }
-  }, [setPropsCategories, setPropsError, setPropsLoading]);
+  }, [persistParametresState]);
   // ── Relancer l'analyse manuellement ─────────────────────────────────────
   const handleRerunAnalysis = useCallback(async () => {
     setImportStatus({ ok: true, msg: 'Relance de l\'analyse IA…' });
-    await callAiAnalysis(excelRows, setExcelRows, setAiLoading, setImportStatus);
-  }, [excelRows]);
+    const analyzedRows = await callAiAnalysis(excelRows, setExcelRows, setAiLoading, setImportStatus);
+    await persistParametresState({ excelRows: analyzedRows });
+  }, [excelRows, persistParametresState]);
   // ── Enregistrement du mapping validé dans Supabase ───────────────────────
   const handleSaveMapping = useCallback(async () => {
+    if (!selectedAudit) throw new Error('SÃ©lectionnez une maquette IFC.');
     const value = JSON.stringify(excelRows.map(r => ({
       nomDuType:    r.nomDuType,
       type:         r.type,
       categorieMoa: r.categorieMoa,
       validation:   r.validation,
     })));
+    const auditScopedKey = `ifc_mapping_validated_maquette_${selectedAudit.id}`;
+    const auditScopedValue = JSON.stringify({
+      auditId: selectedAudit.id,
+      fileName: selectedAudit.project_name,
+      rows: excelRows,
+      savedAt: new Date().toISOString(),
+    });
+    const scopedResult = await supabase.from('audit_config').upsert(
+      { key: auditScopedKey, value: auditScopedValue, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    if (scopedResult.error) throw new Error(scopedResult.error.message);
     const { error } = await supabase.from('audit_config').upsert(
       { key: 'ifc_mapping_validated', value, updated_at: new Date().toISOString() },
       { onConflict: 'key' }
     );
     if (error) throw new Error(error.message);
-  }, [excelRows]);
+    await persistParametresState({ excelRows });
+  }, [selectedAudit, excelRows, persistParametresState]);
 
   // ── Vérification IFC des propriétés ──────────────────────────────────────
   // clé = normalise(nomDuType) → résultat de vérification
-  const [propCheckResults, setPropCheckResults] = useState<Record<string, PropCheckResult>>({});
-  const [propCheckLoading, setPropCheckLoading] = useState(false);
-  const [propCheckError, setPropCheckError] = useState<string | null>(null);
-  const [propCheckProgress, setPropCheckProgress] = useState({ value: 0, label: '' });
-  const propCheckProgressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const stopPropCheckProgress = useCallback(() => {
     if (propCheckProgressTimer.current) {
       clearInterval(propCheckProgressTimer.current);
@@ -1091,6 +1247,21 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         resultMap[normalise(r.nomDuType)] = r;
       }
       setPropCheckResults(resultMap);
+      await supabase.from('audit_config').upsert(
+        {
+          key: `ifc_prop_check_results_maquette_${selectedAudit.id}`,
+          value: JSON.stringify({
+            auditId: selectedAudit.id,
+            fileName: selectedAudit.project_name,
+            fileId,
+            results: resultMap,
+            checkedAt: new Date().toISOString(),
+          }),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'key' }
+      );
+      await persistParametresState({ propCheckResults: resultMap });
       localStorage.setItem('ifc-props-check-estimate', JSON.stringify({
         workUnits,
         durationMs: Date.now() - startedAt,
@@ -1103,7 +1274,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       stopPropCheckProgress();
       setPropCheckLoading(false);
     }
-  }, [selectedAudit, excelRows, propsCategories, stopPropCheckProgress]);
+  }, [selectedAudit, excelRows, propsCategories, stopPropCheckProgress, persistParametresState]);
 
   // ── Import direct : détection auto du format (long ou large) ──────────────
   const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1118,10 +1289,13 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       const res = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      let loadedPropsCategories: PropsCategoryData[] | null = null;
 
       if (data.format === 'long') {
         // Format long : l'API retourne directement les catégories enrichies
-        setPropsCategories(data.categories ?? []);
+        const categories = data.categories ?? [];
+        loadedPropsCategories = categories;
+        setPropsCategories(categories);
       } else {
         // Format large : 1 onglet = 1 catégorie, toutes les colonnes = propriétés
         const ab = await file.arrayBuffer();
@@ -1155,14 +1329,16 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         }
 
         if (categories.length === 0) throw new Error('Aucune donnée trouvée dans le fichier.');
+        loadedPropsCategories = categories;
         setPropsCategories(categories);
       }
+      if (loadedPropsCategories) await persistParametresState({ propsCategories: loadedPropsCategories });
     } catch (err: unknown) {
       setPropsError(err instanceof Error ? err.message : String(err));
     } finally {
       setPropsLoading(false);
     }
-  }, [setPropsCategories, setPropsError, setPropsLoading]);
+  }, [persistParametresState]);
 
   const categories = Array.from(new Set(mappingRows.map(r => r.category))).filter(Boolean);
 
@@ -1181,7 +1357,11 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         <div className="flex items-center gap-3 flex-wrap">
           <select
             value={selectedAuditId ?? ''}
-            onChange={e => setSelectedAuditId(Number(e.target.value))}
+            onChange={e => {
+              const auditId = Number(e.target.value);
+              localStorage.setItem('parametres_selected_audit_id', String(auditId));
+              setSelectedAuditId(auditId);
+            }}
             className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
             {audits.map(a => {
@@ -1216,6 +1396,19 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       )}
 
       {/* ── Info maquette sélectionnée ── */}
+      {(parametresLoading || parametresSaveStatus) && (
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          {parametresLoading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+              <span>Chargement des paramÃ¨tres de la maquette...</span>
+            </>
+          ) : (
+            <span className="text-emerald-600 font-semibold">{parametresSaveStatus}</span>
+          )}
+        </div>
+      )}
+
       {selectedAudit && (
         <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-5 py-3 shadow-sm">
           <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
