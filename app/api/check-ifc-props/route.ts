@@ -17,6 +17,10 @@ type PropCheckResponse = {
   error?: string;
 };
 
+function previewText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
 async function runVercelPythonCheck(
   req: NextRequest,
   payload: PropCheckPayload,
@@ -34,7 +38,8 @@ async function runVercelPythonCheck(
   try {
     data = JSON.parse(text) as PropCheckResponse;
   } catch {
-    throw new Error(text || `Reponse Python invalide (${response.status})`);
+    const contentType = response.headers.get('content-type') ?? 'type inconnu';
+    throw new Error(`Reponse Python non JSON (${response.status}, ${contentType}) : ${previewText(text) || 'reponse vide'}`);
   }
 
   if (!response.ok) {

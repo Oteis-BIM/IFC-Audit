@@ -538,6 +538,19 @@ function normalise(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+async function readJsonResponse<T = Record<string, unknown>>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) return {} as T;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const contentType = res.headers.get('content-type') ?? 'type inconnu';
+    const preview = text.replace(/\s+/g, ' ').trim().slice(0, 240);
+    throw new Error(`Réponse serveur non JSON (${res.status}, ${contentType}) : ${preview || 'réponse vide'}`);
+  }
+}
+
 // ── Analyse IA : appel /api/validate-mapping par batch de 15 lignes ──────
 const BATCH_SIZE = 15;
 
@@ -576,10 +589,10 @@ async function callAiAnalysis(
         body: JSON.stringify({ rows: batches[b] }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = await readJsonResponse<{ error?: string }>(res).catch(() => ({ error: undefined }));
         throw new Error(err.error ?? `Erreur HTTP ${res.status} (batch ${b + 1})`);
       }
-      const data = await res.json();
+      const data = await readJsonResponse<{ results?: Array<{ index: number; validation: string }> }>(res);
       for (const r of (data.results ?? [])) {
         allResults[r.index] = r.validation;
       }
@@ -617,8 +630,8 @@ async function analyzeRow(
         rows: [{ index: globalIdx, nomDuType: row.nomDuType, type: row.type, categorieMoa: row.categorieMoa }],
       }),
     });
+    const data = await readJsonResponse<{ results?: Array<{ validation?: string }> }>(res);
     if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
-    const data = await res.json();
     const validation = (data.results?.[0]?.validation as string | undefined)?.trim() ?? 'Non analysé';
     setRows(prev => prev.map((r, i) => i === globalIdx ? { ...r, validation } : r));
   } catch {
@@ -1085,9 +1098,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         const propsFormData = new FormData();
         propsFormData.append('file', file);
         const propsRes = await fetch('/api/parse-props-excel', { method: 'POST', body: propsFormData });
-        const propsData = await propsRes.json();
+        const propsData = await readJsonResponse<{ format?: string; categories?: PropsCategoryData[] }>(propsRes);
         if (propsRes.ok && propsData.format === 'long' && (propsData.categories?.length ?? 0) > 0) {
-          detectedPropsCategories = propsData.categories;
+          detectedPropsCategories = propsData.categories ?? [];
           setPropsCategories(detectedPropsCategories);
         }
       } catch {
@@ -1238,7 +1251,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileId, requests }),
       });
-      const data = await res.json();
+      const data = await readJsonResponse<{ error?: string; results?: PropCheckResult[] }>(res);
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
       setPropCheckProgress({ value: 96, label: 'Mise a jour du tableau' });
 
@@ -1287,7 +1300,12 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch('/api/parse-props-excel', { method: 'POST', body: formData });
-      const data = await res.json();
+      const data = await readJsonResponse<{
+        error?: string;
+        format?: string;
+        categories?: PropsCategoryData[];
+        sheets?: PropsSheetInfo[];
+      }>(res);
       if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
       let loadedPropsCategories: PropsCategoryData[] | null = null;
 
@@ -1317,14 +1335,14 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fileBase64: b64, sheetName: sheet.sheetName, colCategorie: sheet.headers[0], colsProprietes }),
           });
-          const extractData = await extractRes.json();
+          const extractData = await readJsonResponse<{ error?: string; mapping?: Record<string, string[]> }>(extractRes);
           if (!extractRes.ok) throw new Error(extractData.error ?? `Erreur ${extractRes.status}`);
 
           categories.push({
             name: sheet.categoryName ?? sheet.sheetName,
             nameNormalised: sheet.categoryNameNormalised ?? normalise(sheet.sheetName),
             ifcClasses: [],
-            properties: Object.values(extractData.mapping as Record<string, string[]>).flat().filter((v, i, a) => a.indexOf(v) === i),
+            properties: Object.values(extractData.mapping ?? {}).flat().filter((v, i, a) => a.indexOf(v) === i),
           });
         }
 
