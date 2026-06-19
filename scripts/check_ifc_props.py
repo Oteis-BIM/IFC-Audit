@@ -38,6 +38,7 @@ TYPE_NAME_PROPERTIES = [
     "Family and Type",
     "Famille et type",
     "Name",
+    "INF_Type",
 ]
 
 
@@ -80,6 +81,24 @@ def property_names_match(actual_name: str, expected_name: str) -> bool:
         for actual in actual_keys
         for expected in expected_keys
     )
+
+
+def search_key_variants(value: Any) -> list[str]:
+    text = "" if value is None else str(value)
+    keys: dict[str, None] = {}
+
+    def add_key(candidate: str) -> None:
+        key = normalise(candidate)
+        if len(key) >= 4:
+            keys[key] = None
+
+    add_key(text)
+    for part in re.split(r"[:;/|_\-\n\r]+", text):
+        part = part.strip()
+        if part:
+            add_key(part)
+
+    return list(keys.keys())
 
 
 def stringify_value(value: Any) -> str:
@@ -175,7 +194,7 @@ def candidate_values(element: Any, psets: dict[str, dict[str, Any]]) -> list[str
 
 def element_matches(element: Any, request: dict[str, Any], psets: dict[str, dict[str, Any]]) -> bool:
     search_terms = [request.get("nomDuType"), request.get("type")]
-    search_keys = [normalise(term) for term in search_terms if normalise(term)]
+    search_keys = list(dict.fromkeys(key for term in search_terms for key in search_key_variants(term)))
     if not search_keys:
         return False
 

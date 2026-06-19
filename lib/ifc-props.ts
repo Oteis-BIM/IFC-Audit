@@ -51,6 +51,25 @@ function propertyNamesMatch(actualName: string, expectedName: string): boolean {
   ));
 }
 
+function searchKeyVariants(value?: string): string[] {
+  if (!value) return [];
+
+  const keys = new Set<string>();
+  const addKey = (candidate: string) => {
+    const key = normalise(candidate);
+    if (key.length >= 4) keys.add(key);
+  };
+
+  addKey(value);
+  value
+    .split(/[:;/|_\-\n\r]+/g)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .forEach(addKey);
+
+  return [...keys];
+}
+
 function parseRefList(raw: string): string[] {
   return raw.replace(/[()]/g, '').split(',').map((s) => s.trim()).filter((s) => s.startsWith('#'));
 }
@@ -108,6 +127,7 @@ const TYPE_NAME_PROPERTIES = [
   'Family and Type',
   'Famille et type',
   'Name',
+  'INF_Type',
 ];
 
 function isLikelyElementEntity(body: string): boolean {
@@ -354,10 +374,11 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
   }
 
   return requests.map((request) => {
-    const searchKeys = [normalise(request.nomDuType)];
+    const searchKeys = searchKeyVariants(request.nomDuType);
     if (request.type) {
-      const shortType = normalise(request.type);
-      if (!searchKeys.includes(shortType)) searchKeys.push(shortType);
+      for (const key of searchKeyVariants(request.type)) {
+        if (!searchKeys.includes(key)) searchKeys.push(key);
+      }
     }
 
     let matchedIds: string[] = [];
