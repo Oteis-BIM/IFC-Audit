@@ -17,6 +17,8 @@ type PropCheckResponse = {
   error?: string;
 };
 
+const PYTHON_CHECK_TIMEOUT_MS = 15000;
+
 function previewText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 240);
 }
@@ -27,11 +29,20 @@ async function runVercelPythonCheck(
   accessToken: string
 ): Promise<PropCheckResponse> {
   const pythonUrl = new URL('/api/check-ifc-props-python', req.nextUrl.origin);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PYTHON_CHECK_TIMEOUT_MS);
+
   const response = await fetch(pythonUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...payload, accessToken }),
-  });
+    signal: controller.signal,
+  }).catch(err => {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Verification Python interrompue apres ${PYTHON_CHECK_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  }).finally(() => clearTimeout(timeout));
 
   const text = await response.text();
   let data: PropCheckResponse;
