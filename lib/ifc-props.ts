@@ -17,6 +17,40 @@ function normalise(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function propertyMatchKeys(value: string): string[] {
+  const rawParts = value
+    .split(/[.:]/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const parts = rawParts.length > 0 ? rawParts : [value];
+  const keys = new Set<string>();
+
+  for (const part of parts) {
+    const norm = normalise(part);
+    if (!norm) continue;
+    keys.add(norm);
+    if (norm.endsWith('s') && norm.length > 4) keys.add(norm.slice(0, -1));
+  }
+
+  const full = normalise(value);
+  if (full) {
+    keys.add(full);
+    if (full.endsWith('s') && full.length > 4) keys.add(full.slice(0, -1));
+  }
+
+  return [...keys];
+}
+
+function propertyNamesMatch(actualName: string, expectedName: string): boolean {
+  const actualKeys = propertyMatchKeys(actualName);
+  const expectedKeys = propertyMatchKeys(expectedName);
+
+  return actualKeys.some((actual) => expectedKeys.some((expected) =>
+    actual === expected ||
+    (expected.length > 4 && actual.endsWith(expected))
+  ));
+}
+
 function parseRefList(raw: string): string[] {
   return raw.replace(/[()]/g, '').split(',').map((s) => s.trim()).filter((s) => s.startsWith('#'));
 }
@@ -106,9 +140,8 @@ function lookupProp(allProps: Map<string, string>, propName: string): string | n
       if (key.toLowerCase() === lower && value !== '') matches.push(value);
     }
 
-    const norm = normalise(candidate);
     for (const [key, value] of allProps) {
-      if (normalise(key) === norm && value !== '') matches.push(value);
+      if (propertyNamesMatch(key, candidate) && value !== '') matches.push(value);
     }
   }
 

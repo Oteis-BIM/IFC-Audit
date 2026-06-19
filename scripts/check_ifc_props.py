@@ -48,6 +48,40 @@ def normalise(value: Any) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "", text).lower()
 
 
+def property_match_keys(value: Any) -> list[str]:
+    text = "" if value is None else str(value)
+    raw_parts = [part.strip() for part in re.split(r"[.:]", text) if part.strip()]
+    parts = raw_parts or [text]
+    keys: dict[str, None] = {}
+
+    for part in parts:
+        norm = normalise(part)
+        if not norm:
+            continue
+        keys[norm] = None
+        if len(norm) > 4 and norm.endswith("s"):
+            keys[norm[:-1]] = None
+
+    full = normalise(text)
+    if full:
+        keys[full] = None
+        if len(full) > 4 and full.endswith("s"):
+            keys[full[:-1]] = None
+
+    return list(keys.keys())
+
+
+def property_names_match(actual_name: str, expected_name: str) -> bool:
+    actual_keys = property_match_keys(actual_name)
+    expected_keys = property_match_keys(expected_name)
+
+    return any(
+        actual == expected or (len(expected) > 4 and actual.endswith(expected))
+        for actual in actual_keys
+        for expected in expected_keys
+    )
+
+
 def stringify_value(value: Any) -> str:
     if value is None:
         return ""
@@ -106,12 +140,10 @@ def flatten_properties(psets: dict[str, dict[str, Any]]) -> dict[str, list[dict[
 
 
 def lookup_property(flat_props: dict[str, list[dict[str, str]]], prop_name: str) -> list[dict[str, str]]:
-    norm = normalise(prop_name)
     matches: list[dict[str, str]] = []
 
     for key, entries in flat_props.items():
-        key_norm = normalise(key)
-        if key == prop_name or key.lower() == prop_name.lower() or key_norm == norm:
+        if key == prop_name or key.lower() == prop_name.lower() or property_names_match(key, prop_name):
             matches.extend(entries)
 
     return matches
