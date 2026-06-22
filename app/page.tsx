@@ -1180,7 +1180,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     setPropCheckProgress({ value: 8, label: 'Preparation des controles' });
     stopPropCheckProgress();
     setPropCheckResults({});    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
-    const requests = excelRows
+    const rawRequests = excelRows
       .filter(row => row.nomDuType)
       .map(row => {
         const catNorm = normalise(row.categorieMoa);
@@ -1192,12 +1192,29 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         return {
           nomDuType:  row.nomDuType,
           type:       row.type,       // type court (ex: "CAN_ICTA 3422") pour la recherche IFC
+          ifcClasses: catData?.ifcClasses ?? [],
           properties: catData?.properties ?? [],
         };
       })
-      .filter(r => r.properties.length > 0)
-      // déduplique par nomDuType
-      .filter((r, i, arr) => arr.findIndex(x => x.nomDuType === r.nomDuType) === i);
+      .filter(r => r.properties.length > 0);
+
+    const requests = Array.from(rawRequests.reduce((acc, request) => {
+      const key = normalise(request.nomDuType);
+      const current = acc.get(key);
+      if (!current) {
+        acc.set(key, {
+          ...request,
+          ifcClasses: [...new Set(request.ifcClasses)],
+          properties: [...new Set(request.properties)],
+        });
+        return acc;
+      }
+
+      current.ifcClasses = [...new Set([...(current.ifcClasses ?? []), ...(request.ifcClasses ?? [])])];
+      current.properties = [...new Set([...current.properties, ...request.properties])];
+      if (!current.type && request.type) current.type = request.type;
+      return acc;
+    }, new Map<string, { nomDuType: string; type: string; ifcClasses: string[]; properties: string[] }>()).values());
 
     if (requests.length === 0) {
       setPropCheckError('Aucune propriété à vérifier — vérifiez que le mapping et les propriétés sont chargés.');

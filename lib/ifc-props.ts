@@ -3,6 +3,7 @@ import { buildEntityIndex, parseArgs, stepStr } from '@/lib/ifc-parser';
 export type PropCheckRequest = {
   nomDuType: string;
   type?: string;
+  ifcClasses?: string[];
   properties: string[];
 };
 
@@ -84,6 +85,18 @@ function parseIfcValue(rawValue: string): string {
   if (typedValues.length > 0) return typedValues.join(', ');
 
   return stepStr(raw.replace(/^\.(.*)\.$/, '$1'));
+}
+
+function parseIfcValues(rawValue: string): string {
+  const typedValues = [...rawValue.matchAll(/IFC[A-Z0-9_]+\(([^()]*)\)/gi)]
+    .map((match) => parseIfcValue(match[1] ?? ''))
+    .filter(Boolean);
+  if (typedValues.length > 0) return [...new Set(typedValues)].join(', ');
+  return parseIfcValue(rawValue);
+}
+
+function getEntityTypeName(body: string): string {
+  return body.split('(')[0].trim();
 }
 
 function splitCompoundPropertyName(propName: string): string[] {
@@ -224,6 +237,37 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
   }
 
   const psetValues = new Map<string, Map<string, string>>();
+
+  function readPropertyLike(propRef: string, propMap: Map<string, string>): void {
+    const propertyBody = index.get(propRef);
+    if (!propertyBody) return;
+    const propertyArgs = parseArgs(propertyBody);
+    const propName = stepStr(propertyArgs[0] ?? '');
+    if (!propName) return;
+
+    const upper = propertyBody.toUpperCase();
+    if (upper.startsWith('IFCPROPERTYSINGLEVALUE(')) {
+      propMap.set(propName, parseIfcValue(propertyArgs[2] ?? '$'));
+    } else if (upper.startsWith('IFCPROPERTYENUMERATEDVALUE(')) {
+      propMap.set(propName, parseIfcValues(propertyArgs[2] ?? '$'));
+    } else if (upper.startsWith('IFCPROPERTYLISTVALUE(')) {
+      propMap.set(propName, parseIfcValues(propertyArgs[2] ?? '$'));
+    } else if (upper.startsWith('IFCPROPERTYBOUNDEDVALUE(')) {
+      propMap.set(propName, [parseIfcValues(propertyArgs[2] ?? '$'), parseIfcValues(propertyArgs[3] ?? '$')].filter(Boolean).join(' - '));
+    } else if (upper.startsWith('IFCPROPERTYTABLEVALUE(')) {
+      propMap.set(propName, [parseIfcValues(propertyArgs[2] ?? '$'), parseIfcValues(propertyArgs[3] ?? '$')].filter(Boolean).join(' / '));
+    } else if (upper.startsWith('IFCPROPERTYREFERENCEVALUE(')) {
+      const ref = (propertyArgs[2] ?? '').trim();
+      const refBody = ref.startsWith('#') ? index.get(ref) : undefined;
+      propMap.set(propName, refBody ? stepStr(parseArgs(refBody)[0] ?? '') || ref : ref);
+    } else if (upper.startsWith('IFCCOMPLEXPROPERTY(')) {
+      for (const nestedRef of parseRefList(propertyArgs[3] ?? '')) readPropertyLike(nestedRef, propMap);
+    } else if (upper.startsWith('IFCQUANTITY')) {
+      const value = propertyArgs[3] ?? propertyArgs[2] ?? '$';
+      propMap.set(propName, parseIfcValue(value));
+    }
+  }
+
   for (const [psetId, body] of index) {
     const entityTypeName = body.split('(')[0].toUpperCase();
     if (entityTypeName !== 'IFCPROPERTYSET' && entityTypeName !== 'IFCELEMENTQUANTITY') continue;
@@ -236,25 +280,7 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
       continue;
     }
 
-    for (const propRef of parseRefList(propsListRaw)) {
-      const propertyBody = index.get(propRef);
-      if (!propertyBody) continue;
-      const propertyArgs = parseArgs(propertyBody);
-      const propName = stepStr(propertyArgs[0] ?? '');
-      if (!propName) continue;
-
-      const upper = propertyBody.toUpperCase();
-      if (upper.startsWith('IFCPROPERTYSINGLEVALUE(')) {
-        propMap.set(propName, parseIfcValue(propertyArgs[2] ?? '$'));
-      } else if (upper.startsWith('IFCPROPERTYENUMERATEDVALUE(')) {
-        propMap.set(propName, parseIfcValue(propertyArgs[2] ?? '$'));
-      } else if (upper.startsWith('IFCPROPERTYLISTVALUE(')) {
-        propMap.set(propName, parseIfcValue(propertyArgs[2] ?? '$'));
-      } else if (upper.startsWith('IFCQUANTITY')) {
-        const value = propertyArgs[3] ?? propertyArgs[2] ?? '$';
-        propMap.set(propName, parseIfcValue(value));
-      }
-    }
+    for (const propRef of parseRefList(propsListRaw)) readPropertyLike(propRef, propMap);
 
     const psetName = stepStr(psetArgs[2] ?? '');
     if (psetName && [...propMap.values()].some((value) => value !== '')) {
@@ -332,6 +358,8 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
         result.set('Matériau', value);
         result.set('Materiau', value);
         result.set('Material', value);
+        result.set('Materials', value);
+        result.set('Structural Material', value);
       }
     };
 
@@ -348,10 +376,14 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
     for (const [id, body] of index) {
       if (!isLikelyElementEntity(body)) continue;
 
-      const entityName = stepStr(parseArgs(body)[2] ?? '');
+      const entityArgs = parseArgs(body);
+      const ifcClass = getEntityTypeName(body);
+      const entityName = stepStr(entityArgs[2] ?? '');
       const allProps = getEntityProps(id);
       const candidateValues = [
+        ifcClass,
         entityName,
+        stepStr(entityArgs[4] ?? ''),
         ...TYPE_NAME_PROPERTIES.map((propName) => lookupProp(allProps, propName) ?? ''),
       ].filter(Boolean);
 
@@ -377,6 +409,16 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
     const searchKeys = searchKeyVariants(request.nomDuType);
     if (request.type) {
       for (const key of searchKeyVariants(request.type)) {
+        if (!searchKeys.includes(key)) searchKeys.push(key);
+      }
+    }
+    for (const ifcClass of request.ifcClasses ?? []) {
+      for (const classPart of ifcClass.split(/[\s,]+/).filter(Boolean)) {
+        for (const key of searchKeyVariants(classPart)) {
+          if (!searchKeys.includes(key)) searchKeys.push(key);
+        }
+      }
+      for (const key of searchKeyVariants(ifcClass)) {
         if (!searchKeys.includes(key)) searchKeys.push(key);
       }
     }

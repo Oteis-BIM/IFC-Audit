@@ -17,7 +17,7 @@ type PropCheckResponse = {
   error?: string;
 };
 
-const PYTHON_CHECK_TIMEOUT_MS = 15000;
+const PYTHON_CHECK_TIMEOUT_MS = 120000;
 
 function previewText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 240);
