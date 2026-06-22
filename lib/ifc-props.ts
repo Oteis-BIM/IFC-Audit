@@ -14,8 +14,36 @@ export type PropCheckResult = {
   props: Record<string, string | null>;
 };
 
+function decodeIfcEscapes(value: string): string {
+  return value
+    .replace(/\\X2\\([0-9A-Fa-f]+)\\X0\\/g, (_match, hex: string) => {
+      const chars: string[] = [];
+      for (let i = 0; i + 3 < hex.length; i += 4) {
+        chars.push(String.fromCharCode(parseInt(hex.slice(i, i + 4), 16)));
+      }
+      return chars.join('');
+    })
+    .replace(/\\X\\([0-9A-Fa-f]{2})/g, (_match, hex: string) =>
+      String.fromCharCode(parseInt(hex, 16))
+    );
+}
+
+function repairMojibake(value: string): string {
+  if (!/[ÃÂâ€Å]/.test(value)) return value;
+  try {
+    const bytes = Uint8Array.from([...value].map((char) => char.charCodeAt(0)));
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return value;
+  }
+}
+
+function cleanText(value: string): string {
+  return repairMojibake(decodeIfcEscapes(value));
+}
+
 function normalise(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return cleanText(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function propertyMatchKeys(value: string): string[] {
@@ -80,11 +108,11 @@ function parseIfcValue(rawValue: string): string {
   if (!raw || raw === '$' || raw === '*') return '';
 
   const typedValues = [...raw.matchAll(/IFC[A-Z0-9_]+\(([^()]*)\)/gi)]
-    .map((match) => stepStr(match[1].trim().replace(/^\.(.*)\.$/, '$1')))
+    .map((match) => cleanText(stepStr(match[1].trim().replace(/^\.(.*)\.$/, '$1'))))
     .filter(Boolean);
   if (typedValues.length > 0) return typedValues.join(', ');
 
-  return stepStr(raw.replace(/^\.(.*)\.$/, '$1'));
+  return cleanText(stepStr(raw.replace(/^\.(.*)\.$/, '$1')));
 }
 
 function parseIfcValues(rawValue: string): string {

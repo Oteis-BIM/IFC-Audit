@@ -4,7 +4,16 @@ export const runtime = 'nodejs';
 
 // Normalise une chaîne pour la comparaison : minuscules, sans accents, sans ponctuation
 function normalise(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const repaired = (() => {
+    if (!/[ÃÂâ€Å]/.test(s)) return s;
+    try {
+      const bytes = Uint8Array.from([...s].map((char) => char.charCodeAt(0)));
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      return s;
+    }
+  })();
+  return repaired.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 export async function POST(req: NextRequest) {

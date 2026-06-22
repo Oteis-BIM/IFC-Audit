@@ -42,8 +42,39 @@ TYPE_NAME_PROPERTIES = [
 ]
 
 
-def normalise(value: Any) -> str:
+def decode_ifc_escapes(text: str) -> str:
+    def decode_x2(match: re.Match[str]) -> str:
+        hex_value = match.group(1)
+        chars = [
+            chr(int(hex_value[i : i + 4], 16))
+            for i in range(0, len(hex_value) - 3, 4)
+        ]
+        return "".join(chars)
+
+    text = re.sub(r"\\X2\\([0-9A-Fa-f]+)\\X0\\", decode_x2, text)
+    return re.sub(
+        r"\\X\\([0-9A-Fa-f]{2})",
+        lambda match: chr(int(match.group(1), 16)),
+        text,
+    )
+
+
+def repair_mojibake(text: str) -> str:
+    if not re.search(r"[ÃÂâ€Å]", text):
+        return text
+    try:
+        return text.encode("latin1").decode("utf-8")
+    except UnicodeError:
+        return text
+
+
+def clean_text(value: Any) -> str:
     text = "" if value is None else str(value)
+    return repair_mojibake(decode_ifc_escapes(text))
+
+
+def normalise(value: Any) -> str:
+    text = clean_text(value)
     text = unicodedata.normalize("NFD", text)
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
     return re.sub(r"[^a-zA-Z0-9]", "", text).lower()
@@ -111,7 +142,7 @@ def stringify_value(value: Any) -> str:
         return ", ".join(v for v in values if v)
     if hasattr(value, "Name"):
         return stringify_value(getattr(value, "Name", None))
-    return str(value).strip()
+    return clean_text(value).strip()
 
 
 def is_filled(value: Any) -> bool:
