@@ -516,6 +516,8 @@ type PropsCategoryData = {
 type PropCheckResult = {
   nomDuType:     string;
   ifcName:       string;
+  ifcClass?:     string;
+  ifcClassesFound?: string[];
   instanceCount: number;
   /** Pour chaque propriété : valeur trouvée ou null si absente/vide */
   props:         Record<string, string | null>;
@@ -545,6 +547,41 @@ function normalise(s: string): string {
     }
   })();
   return repaired.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function splitIfcClasses(values: string[] | undefined): string[] {
+  return [...new Set((values ?? [])
+    .flatMap(value => value.split(/[\s,;/|]+/g))
+    .map(value => value.trim())
+    .filter(value => /^Ifc/i.test(value)))];
+}
+
+function getIfcClassCheck(
+  expectedIfcClasses: string[],
+  result: PropCheckResult | undefined,
+): { status: 'ok' | 'error' | 'pending' | 'missing' | 'unknown'; label: string; detail?: string } {
+  const expected = splitIfcClasses(expectedIfcClasses);
+  if (expected.length === 0) {
+    return { status: 'unknown', label: 'Non renseignée', detail: 'Aucune Entité IFC dans le fichier Excel' };
+  }
+
+  if (!result) {
+    return { status: 'pending', label: 'À contrôler', detail: `Attendu : ${expected.join(', ')}` };
+  }
+
+  if (result.instanceCount === 0) {
+    return { status: 'missing', label: 'Objet non trouvé', detail: `Attendu : ${expected.join(', ')}` };
+  }
+
+  const found = splitIfcClasses(result.ifcClassesFound?.length ? result.ifcClassesFound : [result.ifcClass ?? '']);
+  if (found.length === 0) {
+    return { status: 'unknown', label: 'Classe inconnue', detail: `Attendu : ${expected.join(', ')}` };
+  }
+
+  const isOk = found.some(actual => expected.some(exp => normalise(actual) === normalise(exp)));
+  return isOk
+    ? { status: 'ok', label: found.join(', '), detail: `Conforme à ${expected.join(', ')}` }
+    : { status: 'error', label: found.join(', '), detail: `Attendu : ${expected.join(', ')}` };
 }
 
 async function readJsonResponse<T = Record<string, unknown>>(res: Response): Promise<T> {
@@ -1205,7 +1242,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           properties: catData?.properties ?? [],
         };
       })
-      .filter(r => r.properties.length > 0);
+      .filter(r => r.properties.length > 0 || r.ifcClasses.length > 0);
 
     const requests = Array.from(rawRequests.reduce((acc, request) => {
       const key = normalise(request.nomDuType);
@@ -1226,7 +1263,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     }, new Map<string, { nomDuType: string; type: string; ifcClasses: string[]; properties: string[] }>()).values());
 
     if (requests.length === 0) {
-      setPropCheckError('Aucune propriété à vérifier — vérifiez que le mapping et les propriétés sont chargés.');
+      setPropCheckError('Aucune classe IFC ou propriété à vérifier — vérifiez que le mapping Excel est chargé.');
       setPropCheckLoading(false);
       setPropCheckProgress({ value: 0, label: '' });
       return;
@@ -1525,13 +1562,19 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Nom du type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[14%]">Type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Catégorie MOA</th>
-                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation / Commentaires</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Classes IFC</th>
                 </tr>
               </thead>
               <tbody>
                 {excelRows.map((row, idx) => {
-                  const isNonValide = row.validation.startsWith('Non validé');
-                  const isValide    = row.validation === 'Validé';
+                  const catNorm = normalise(row.categorieMoa);
+                  const catData = propsCategories?.find(pc =>
+                    pc.nameNormalised === catNorm ||
+                    pc.nameNormalised.includes(catNorm) ||
+                    catNorm.includes(pc.nameNormalised)
+                  );
+                  const checkResult = propCheckResults[normalise(row.nomDuType)];
+                  const ifcClassCheck = getIfcClassCheck(catData?.ifcClasses ?? [], checkResult);
                   return (                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/20 transition-colors`}>
                       {/* Col 1 — Composants Solibri */}
                       <td className="px-5 py-2.5 text-xs text-slate-600 leading-snug">
@@ -1590,39 +1633,31 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         <datalist id={`moa-options-${idx}`}>
                           {moaOptions.map(opt => <option key={opt} value={opt} />)}
                         </datalist>
-                      </td>{/* Col 4 — Validation / Commentaires */}
+                      </td>{/* Col 4 — Classes IFC */}
                       <td className="px-5 py-2.5 min-w-[220px]">
-                        {(aiLoading && !row.validation) || analyzingIdx === idx ? (
-                          <span className="text-xs text-slate-400 italic animate-pulse">Analyse…</span>
-                        ) : isValide ? (
-                          <span className="inline-flex items-center gap-1.5 text-emerald-600 text-xs font-semibold">
-                            <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Validé
-                          </span>
-                        ) : isNonValide ? (
-                          <div className="flex flex-col gap-1">
-                            {/* Commentaire IA */}
-                            <span className="inline-flex items-start gap-1.5 text-orange-600 text-xs font-semibold">
-                              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                              <span className="leading-snug">
-                                {/* Affiche uniquement la raison après "Non validé : " */}
-                                {row.validation.replace(/^Non validé\s*:\s*/i, '')}
-                              </span>
-                            </span>
-                            {/* Bouton forcer Validé */}
-                            <button
-                              onClick={() => setExcelRows(prev => prev.map((r, i) =>
-                                i === idx ? { ...r, validation: 'Validé' } : r
-                              ))}
-                              className="self-start flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-emerald-600 border border-slate-200 hover:border-emerald-300 bg-white hover:bg-emerald-50 rounded-md px-2 py-0.5 transition-colors"
-                              title="Forcer le statut à Validé"
-                            >
-                              <CheckCircle className="h-3 w-3" /> Forcer Validé
-                            </button>
-                          </div>
-                        ) : row.validation === 'Non analysé' ? (
-                          <span className="text-xs text-slate-400 italic">Non analysé</span>
+                        {propCheckLoading ? (
+                          <span className="inline-block h-5 w-28 rounded-full bg-slate-200 animate-pulse" />
                         ) : (
-                          <span className="text-xs text-slate-300 italic">—</span>
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span
+                              title={ifcClassCheck.detail}
+                              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                ifcClassCheck.status === 'ok'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : ifcClassCheck.status === 'error'
+                                    ? 'bg-red-50 text-red-600'
+                                    : ifcClassCheck.status === 'missing'
+                                      ? 'bg-amber-50 text-amber-600'
+                                      : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {ifcClassCheck.status === 'ok' ? <CheckCircle className="h-3.5 w-3.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+                              {ifcClassCheck.label}
+                            </span>
+                            {ifcClassCheck.detail && (
+                              <span className="text-[10px] text-slate-400 leading-tight">{ifcClassCheck.detail}</span>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -1691,9 +1726,11 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
 
           // ── Construit un index rapide : nom normalisé → propriétés ─────────
           const propsIndex: Record<string, string[]> = {};
+          const ifcClassesIndex: Record<string, string[]> = {};
           if (propsCategories && propsCategories.length > 0) {
             for (const pc of propsCategories) {
               propsIndex[pc.nameNormalised] = pc.properties;
+              ifcClassesIndex[pc.nameNormalised] = pc.ifcClasses;
             }
           }
 
@@ -1705,6 +1742,15 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             // Correspondance partielle
             for (const [key, props] of Object.entries(propsIndex)) {
               if (n.includes(key) || key.includes(n)) return props;
+            }
+            return [];
+          }
+
+          function findIfcClasses(catName: string): string[] {
+            const n = normalise(catName);
+            if (ifcClassesIndex[n]) return ifcClassesIndex[n];
+            for (const [key, ifcClasses] of Object.entries(ifcClassesIndex)) {
+              if (n.includes(key) || key.includes(n)) return ifcClasses;
             }
             return [];
           }
@@ -1722,6 +1768,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
               {moaCategories.map(cat => {
                 const rowsForCat = excelRows.filter(r => r.categorieMoa === cat);                // Propriétés : issues de propsCategories si chargé, sinon categoryProps (défaut)
                 const props = findProps(cat).length > 0 ? findProps(cat) : (categoryProps[cat] ?? []);
+                const expectedIfcClasses = findIfcClasses(cat);
                 const missingOnly = filterMissing[cat] ?? false;
                 const displayedRows = missingOnly
                   ? rowsForCat.filter(obj => {
@@ -1756,6 +1803,11 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         <span className="text-[11px] text-white/60 bg-white/10 px-2 py-0.5 rounded-full">{rowsForCat.length} type{rowsForCat.length > 1 ? 's' : ''}</span>
                         {hasProps && (
                           <span className="text-[11px] text-indigo-300 bg-indigo-900/50 px-2 py-0.5 rounded-full">{props.length} propriété{props.length > 1 ? 's' : ''}</span>
+                        )}
+                        {splitIfcClasses(expectedIfcClasses).length > 0 && (
+                          <span className="text-[11px] text-cyan-200 bg-cyan-900/40 px-2 py-0.5 rounded-full">
+                            IFC : {splitIfcClasses(expectedIfcClasses).join(', ')}
+                          </span>
                         )}
                         {/* Statut de vérification */}
                         {propCheckLoading && (
@@ -1797,7 +1849,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[160px]">Composant Solibri</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[200px]">Nom du type</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[120px]">Type IFC</th>
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[90px]">Validation</th>
+                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[150px]">Classes IFC</th>
                             {props.map(p => (
                               <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[110px] border-l border-slate-200 bg-indigo-50/60 leading-tight">{p}</th>
                             ))}
@@ -1805,10 +1857,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         </thead>
                         <tbody>
                           {displayedRows.map((obj, oi) => {
-                            const isValide    = obj.validation === 'Validé';
-                            const isNonValide = obj.validation.startsWith('Non validé');
                             // Cherche les résultats IFC pour ce nomDuType
                             const checkResult = propCheckResults[normalise(obj.nomDuType)];
+                            const ifcClassCheck = getIfcClassCheck(expectedIfcClasses, checkResult);
                             const hasResults  = !!checkResult;
                             return (
                               <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-indigo-50/20 transition-colors`}>
@@ -1829,11 +1880,29 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                   <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
                                 </td>
                                 <td className="px-4 py-2.5">
-                                  {obj.validation ? (
-                                    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${isValide ? 'bg-emerald-100 text-emerald-700' : isNonValide ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
-                                      {isValide ? '✓' : isNonValide ? '✗' : '…'} {obj.validation.replace('Non validé : ', '')}
-                                    </span>
-                                  ) : <span className="text-slate-300 italic text-[11px]">—</span>}
+                                  {propCheckLoading ? (
+                                    <span className="inline-block h-5 w-24 rounded-full bg-slate-200 animate-pulse" />
+                                  ) : (
+                                    <div className="flex flex-col items-start gap-0.5">
+                                      <span
+                                        title={ifcClassCheck.detail}
+                                        className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                                          ifcClassCheck.status === 'ok'
+                                            ? 'bg-emerald-100 text-emerald-700'
+                                            : ifcClassCheck.status === 'error'
+                                              ? 'bg-red-50 text-red-600'
+                                              : ifcClassCheck.status === 'missing'
+                                                ? 'bg-amber-50 text-amber-600'
+                                                : 'bg-slate-100 text-slate-500'
+                                        }`}
+                                      >
+                                        {ifcClassCheck.status === 'ok' ? '✓' : ifcClassCheck.status === 'error' ? '✗' : '…'} {ifcClassCheck.label}
+                                      </span>
+                                      {ifcClassCheck.detail && (
+                                        <span className="text-[10px] text-slate-400 leading-tight max-w-[180px]">{ifcClassCheck.detail}</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </td>
                                 {props.map(p => {
                                   if (propCheckLoading) {

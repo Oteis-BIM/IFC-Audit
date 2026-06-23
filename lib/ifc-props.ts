@@ -10,6 +10,8 @@ export type PropCheckRequest = {
 export type PropCheckResult = {
   nomDuType: string;
   ifcName: string;
+  ifcClass: string;
+  ifcClassesFound: string[];
   instanceCount: number;
   props: Record<string, string | null>;
 };
@@ -440,17 +442,6 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
         if (!searchKeys.includes(key)) searchKeys.push(key);
       }
     }
-    for (const ifcClass of request.ifcClasses ?? []) {
-      for (const classPart of ifcClass.split(/[\s,]+/).filter(Boolean)) {
-        for (const key of searchKeyVariants(classPart)) {
-          if (!searchKeys.includes(key)) searchKeys.push(key);
-        }
-      }
-      for (const key of searchKeyVariants(ifcClass)) {
-        if (!searchKeys.includes(key)) searchKeys.push(key);
-      }
-    }
-
     let matchedIds: string[] = [];
     let ifcName = request.nomDuType;
 
@@ -491,9 +482,12 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
     }
 
     const allProps = new Map<string, string>();
+    const ifcClassesFound = new Set<string>();
     for (const id of expandedIds) {
       const body = index.get(id);
       if (body) {
+        const entityTypeName = getEntityTypeName(body);
+        if (entityTypeName) ifcClassesFound.add(entityTypeName);
         const realName = stepStr(parseArgs(body)[2] ?? '');
         if (realName) ifcName = realName;
       }
@@ -505,6 +499,14 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
     const props: Record<string, string | null> = {};
     for (const prop of request.properties) props[prop] = lookupProp(allProps, prop);
 
-    return { nomDuType: request.nomDuType, ifcName, instanceCount: countedInstanceIds.size, props };
+    const classes = [...ifcClassesFound];
+    return {
+      nomDuType: request.nomDuType,
+      ifcName,
+      ifcClass: classes[0] ?? '',
+      ifcClassesFound: classes,
+      instanceCount: countedInstanceIds.size,
+      props,
+    };
   });
 }

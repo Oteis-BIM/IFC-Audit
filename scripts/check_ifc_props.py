@@ -310,16 +310,6 @@ def element_matches(element: Any, request: dict[str, Any], psets: dict[str, dict
     ):
         return True
 
-    ifc_classes = request.get("ifcClasses")
-    if isinstance(ifc_classes, list):
-        class_keys = []
-        for value in ifc_classes:
-            class_keys.extend(normalise(part) for part in re.split(r"[\s,]+", str(value)) if normalise(part))
-            if normalise(value):
-                class_keys.append(normalise(value))
-        class_keys = list(dict.fromkeys(class_keys))
-        return any(candidate == class_key for candidate in candidates for class_key in class_keys)
-
     return False
 
 
@@ -366,12 +356,16 @@ def check_request(elements: list[Any], request: dict[str, Any]) -> dict[str, Any
         }
 
     ifc_name = request.get("nomDuType", "")
+    ifc_classes_found: list[str] = []
     if matched:
         ifc_name = stringify_value(getattr(matched[0][0], "Name", None)) or ifc_name
+        ifc_classes_found = list(dict.fromkeys(element.is_a() for element, _psets, _flat_props in matched if element.is_a()))
 
     return {
         "nomDuType": request.get("nomDuType", ""),
         "ifcName": ifc_name,
+        "ifcClass": ifc_classes_found[0] if ifc_classes_found else "",
+        "ifcClassesFound": ifc_classes_found,
         "instanceCount": len(matched),
         "props": prop_values,
         "propDetails": prop_details,
