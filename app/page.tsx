@@ -3560,7 +3560,7 @@ export default function Dashboard() {
              <div className="w-6 h-6 bg-purple-400 rounded flex items-center justify-center text-white text-[10px]">IFC</div>
              <span>IFC Quality Control</span>
           </div>          <nav className="flex space-x-6 text-sm font-medium text-purple-300">
-            {['Tableau de bord', 'Structure Maquettes', 'Rapports', 'Conformité', 'Paramètres', 'LLM'].map(t => (
+            {['Tableau de bord', 'Structure Maquettes', 'Rapports', 'Contrôle Classes IFC', 'Paramètres', 'LLM'].map(t => (
               <span
                 key={t}
                 onClick={() => setActiveTab(t)}
