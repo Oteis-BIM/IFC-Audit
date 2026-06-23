@@ -561,27 +561,28 @@ function getIfcClassCheck(
   result: PropCheckResult | undefined,
 ): { status: 'ok' | 'error' | 'pending' | 'missing' | 'unknown'; label: string; detail?: string } {
   const expected = splitIfcClasses(expectedIfcClasses);
+  const expectedLabel = expected.join(', ');
   if (expected.length === 0) {
     return { status: 'unknown', label: 'Non renseignée', detail: 'Aucune Entité IFC dans le fichier Excel' };
   }
 
   if (!result) {
-    return { status: 'pending', label: 'À contrôler', detail: `Attendu : ${expected.join(', ')}` };
+    return { status: 'pending', label: expectedLabel, detail: 'À contrôler' };
   }
 
   if (result.instanceCount === 0) {
-    return { status: 'missing', label: 'Objet non trouvé', detail: `Attendu : ${expected.join(', ')}` };
+    return { status: 'missing', label: expectedLabel, detail: 'Objet non trouvé dans l’IFC' };
   }
 
   const found = splitIfcClasses(result.ifcClassesFound?.length ? result.ifcClassesFound : [result.ifcClass ?? '']);
   if (found.length === 0) {
-    return { status: 'unknown', label: 'Classe inconnue', detail: `Attendu : ${expected.join(', ')}` };
+    return { status: 'unknown', label: expectedLabel, detail: 'Classe réelle non détectée' };
   }
 
   const isOk = found.some(actual => expected.some(exp => normalise(actual) === normalise(exp)));
   return isOk
-    ? { status: 'ok', label: found.join(', '), detail: `Conforme à ${expected.join(', ')}` }
-    : { status: 'error', label: found.join(', '), detail: `Attendu : ${expected.join(', ')}` };
+    ? { status: 'ok', label: expectedLabel, detail: 'Conforme' }
+    : { status: 'error', label: expectedLabel, detail: 'Non conforme' };
 }
 
 async function readJsonResponse<T = Record<string, unknown>>(res: Response): Promise<T> {

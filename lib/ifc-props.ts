@@ -191,6 +191,30 @@ function isLikelyElementEntity(body: string): boolean {
   );
 }
 
+function isTechnicalIfcEntity(entityTypeName: string): boolean {
+  return (
+    entityTypeName.endsWith('TYPE') ||
+    entityTypeName.startsWith('IFCAXIS') ||
+    entityTypeName.startsWith('IFCCARTESIAN') ||
+    entityTypeName.startsWith('IFCCOLOUR') ||
+    entityTypeName.startsWith('IFCDIMENSIONAL') ||
+    entityTypeName.startsWith('IFCDIRECTION') ||
+    entityTypeName.startsWith('IFCGEOMETRIC') ||
+    entityTypeName.startsWith('IFCLOCALPLACEMENT') ||
+    entityTypeName.startsWith('IFCPRESENTATION') ||
+    entityTypeName.startsWith('IFCPRODUCTDEFINITION') ||
+    entityTypeName.startsWith('IFCPROFILE') ||
+    entityTypeName.startsWith('IFCSHAPE') ||
+    entityTypeName.startsWith('IFCSTYLE') ||
+    entityTypeName.includes('REPRESENTATION')
+  );
+}
+
+function isLikelyObjectClass(body: string): boolean {
+  const entityTypeName = getEntityTypeName(body).toUpperCase();
+  return isLikelyElementEntity(body) && !isTechnicalIfcEntity(entityTypeName);
+}
+
 function lookupProp(allProps: Map<string, string>, propName: string): string | null {
   const matches: string[] = [];
 
@@ -483,14 +507,17 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
 
     const allProps = new Map<string, string>();
     const ifcClassesFound = new Set<string>();
-    for (const id of expandedIds) {
+    for (const id of countedInstanceIds) {
       const body = index.get(id);
-      if (body) {
+      if (body && isLikelyObjectClass(body)) {
         const entityTypeName = getEntityTypeName(body);
         if (entityTypeName) ifcClassesFound.add(entityTypeName);
         const realName = stepStr(parseArgs(body)[2] ?? '');
         if (realName) ifcName = realName;
       }
+    }
+
+    for (const id of expandedIds) {
       for (const [key, value] of getEntityProps(id)) {
         if (!allProps.has(key) || (allProps.get(key) === '' && value !== '')) allProps.set(key, value);
       }
