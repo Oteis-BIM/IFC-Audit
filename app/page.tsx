@@ -582,7 +582,7 @@ function getIfcClassCheck(
   const isOk = found.some(actual => expected.some(exp => normalise(actual) === normalise(exp)));
   return isOk
     ? { status: 'ok', label: expectedLabel, detail: 'Conforme' }
-    : { status: 'error', label: expectedLabel, detail: 'Non conforme' };
+    : { status: 'error', label: found.join(', '), detail: `Attendu : ${expectedLabel}` };
 }
 
 async function readJsonResponse<T = Record<string, unknown>>(res: Response): Promise<T> {
