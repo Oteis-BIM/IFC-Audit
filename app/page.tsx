@@ -1563,19 +1563,13 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Nom du type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[14%]">Type</th>
                   <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest w-[22%]">Catégorie MOA</th>
-                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Classes IFC</th>
+                  <th className="text-left px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Validation / Commentaires</th>
                 </tr>
               </thead>
               <tbody>
                 {excelRows.map((row, idx) => {
-                  const catNorm = normalise(row.categorieMoa);
-                  const catData = propsCategories?.find(pc =>
-                    pc.nameNormalised === catNorm ||
-                    pc.nameNormalised.includes(catNorm) ||
-                    catNorm.includes(pc.nameNormalised)
-                  );
-                  const checkResult = propCheckResults[normalise(row.nomDuType)];
-                  const ifcClassCheck = getIfcClassCheck(catData?.ifcClasses ?? [], checkResult);
+                  const isNonValide = row.validation.startsWith('Non validé');
+                  const isValide    = row.validation === 'Validé';
                   return (                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/20 transition-colors`}>
                       {/* Col 1 — Composants Solibri */}
                       <td className="px-5 py-2.5 text-xs text-slate-600 leading-snug">
@@ -1634,31 +1628,36 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                         <datalist id={`moa-options-${idx}`}>
                           {moaOptions.map(opt => <option key={opt} value={opt} />)}
                         </datalist>
-                      </td>{/* Col 4 — Classes IFC */}
+                      </td>{/* Col 4 — Validation / Commentaires */}
                       <td className="px-5 py-2.5 min-w-[220px]">
-                        {propCheckLoading ? (
-                          <span className="inline-block h-5 w-28 rounded-full bg-slate-200 animate-pulse" />
-                        ) : (
-                          <div className="flex flex-col items-start gap-0.5">
-                            <span
-                              title={ifcClassCheck.detail}
-                              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                                ifcClassCheck.status === 'ok'
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : ifcClassCheck.status === 'error'
-                                    ? 'bg-red-50 text-red-600'
-                                    : ifcClassCheck.status === 'missing'
-                                      ? 'bg-amber-50 text-amber-600'
-                                      : 'bg-slate-100 text-slate-500'
-                              }`}
-                            >
-                              {ifcClassCheck.status === 'ok' ? <CheckCircle className="h-3.5 w-3.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
-                              {ifcClassCheck.label}
+                        {(aiLoading && !row.validation) || analyzingIdx === idx ? (
+                          <span className="text-xs text-slate-400 italic animate-pulse">Analyse…</span>
+                        ) : isValide ? (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-600 text-xs font-semibold">
+                            <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Validé
+                          </span>
+                        ) : isNonValide ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-start gap-1.5 text-orange-600 text-xs font-semibold">
+                              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                              <span className="leading-snug">
+                                {row.validation.replace(/^Non validé\s*:\s*/i, '')}
+                              </span>
                             </span>
-                            {ifcClassCheck.detail && (
-                              <span className="text-[10px] text-slate-400 leading-tight">{ifcClassCheck.detail}</span>
-                            )}
+                            <button
+                              onClick={() => setExcelRows(prev => prev.map((r, i) =>
+                                i === idx ? { ...r, validation: 'Validé' } : r
+                              ))}
+                              className="self-start flex items-center gap-1 text-[10px] font-semibold text-slate-500 hover:text-emerald-600 border border-slate-200 hover:border-emerald-300 bg-white hover:bg-emerald-50 rounded-md px-2 py-0.5 transition-colors"
+                              title="Forcer le statut à Validé"
+                            >
+                              <CheckCircle className="h-3 w-3" /> Forcer Validé
+                            </button>
                           </div>
+                        ) : row.validation === 'Non analysé' ? (
+                          <span className="text-xs text-slate-400 italic">Non analysé</span>
+                        ) : (
+                          <span className="text-xs text-slate-300 italic">—</span>
                         )}
                       </td>
                     </tr>
