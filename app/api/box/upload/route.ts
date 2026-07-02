@@ -16,6 +16,26 @@ async function simpleUpload(accessToken: string, file: File, folderId: string) {
   return res.json();
 }
 
+// Nouvelle version d'un fichier déjà existant (même nom) <= 50 MB
+async function simpleUploadNewVersion(accessToken: string, file: File, existingFileId: string) {
+  const boxForm = new FormData();
+  boxForm.append('file', file);
+  const res = await fetch(`https://upload.box.com/api/2.0/files/${existingFileId}/content`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: boxForm,
+  });
+  return res.json();
+}
+
+function extractConflictFileId(uploadData: unknown): string | null {
+  const data = uploadData as { code?: string; context_info?: { conflicts?: { type?: string; id?: string } | { type?: string; id?: string }[] } };
+  if (data?.code !== 'item_name_in_use') return null;
+  const conflicts = data.context_info?.conflicts;
+  const conflict = Array.isArray(conflicts) ? conflicts[0] : conflicts;
+  return conflict?.type === 'file' ? conflict.id ?? null : null;
+}
+
 // Upload chunked > 50 MB
 async function chunkedUpload(accessToken: string, file: File, folderId: string) {
   const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -116,9 +136,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const CHUNKED_THRESHOLD = 50 * 1024 * 1024;
-    const uploadData = file.size > CHUNKED_THRESHOLD
+    let uploadData = file.size > CHUNKED_THRESHOLD
       ? await chunkedUpload(accessToken!, file, folderId)
       : await simpleUpload(accessToken!, file, folderId);
+
+    const conflictFileId = extractConflictFileId(uploadData);
+    if (conflictFileId) {
+      // Un fichier du même nom existe déjà : on remplace par une nouvelle version.
+      uploadData = await simpleUploadNewVersion(accessToken!, file, conflictFileId);
+    }
 
     const boxFile = uploadData.entries?.[0] ?? uploadData;
     const boxFileId = boxFile?.id;
