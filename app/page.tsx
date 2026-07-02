@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import {  LayoutDashboard, Layers, Ruler, Database, CheckCircle2,
   Bell, UserCircle, AlertCircle, CheckCircle,
-  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, Sparkles
+  Upload, X, FileBox, Eye, Loader2, TrendingUp, Download, Sparkles, Boxes
 } from 'lucide-react';
 import NextDynamic from 'next/dynamic';
 import type { FileEntry } from './components/IfcViewer';
@@ -962,6 +962,18 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   const [selectedAuditId, setSelectedAuditId] = useState<number | null>(null);
   const selectedAudit = audits.find(a => a.id === selectedAuditId) ?? null;
 
+  // Visionneuse IFC ouverte depuis une ligne de type (surlignage par type)
+  const [viewerEntry, setViewerEntry] = useState<FileEntry | null>(null);
+  const [highlightType, setHighlightType] = useState<string | null>(null);
+  function closeTypeViewer() { setViewerEntry(null); setHighlightType(null); }
+  function openViewerWithHighlight(typeName: string) {
+    if (!selectedAudit || !typeName) return;
+    const { fileId } = parseMaquetteDetails(selectedAudit.details);
+    if (!fileId) return;
+    setViewerEntry({ fileId, fileName: selectedAudit.project_name });
+    setHighlightType(typeName);
+  }
+
   // Section 2 — mapping IFC legacy
   const [mappingRows, setMappingRows] = useState<MappingRow[]>(() =>
     Object.entries(IFC_TYPE_DEFAULTS).map(([ifcType, category]) => ({
@@ -1865,7 +1877,18 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                               <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-indigo-50/20 transition-colors`}>
                                 <td className="px-4 py-2.5 text-slate-600 leading-snug">{obj.composant || <span className="text-slate-300 italic">—</span>}</td>
                                 <td className="px-4 py-2.5 font-medium text-slate-700 leading-snug">
-                                  {obj.nomDuType || <span className="text-slate-300 italic">—</span>}
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{obj.nomDuType || <span className="text-slate-300 italic">—</span>}</span>
+                                    {obj.nomDuType && selectedAudit && (
+                                      <button
+                                        onClick={() => openViewerWithHighlight(obj.nomDuType)}
+                                        title="Visualiser ce type dans la maquette 3D"
+                                        className="shrink-0 p-1 rounded-md text-slate-300 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                                      >
+                                        <Boxes className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
                                   {hasResults && checkResult.instanceCount === 0 && (
                                     <div className="text-[10px] text-amber-500 font-normal mt-0.5 flex items-center gap-1">
                                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -1972,6 +1995,16 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             </div>
           );
         })()}</div>
+
+      {viewerEntry && (
+        <IfcViewer
+          files={[viewerEntry]}
+          onClose={closeTypeViewer}
+          onRemoveFile={closeTypeViewer}
+          highlightTypeName={highlightType}
+          onClearHighlight={() => setHighlightType(null)}
+        />
+      )}
     </div>
   );
 }

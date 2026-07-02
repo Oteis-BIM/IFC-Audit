@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import { Eye, EyeOff, X, Loader2, Plus, ChevronDown } from "lucide-react";
+import { buildIfcPropertyIndex, getObjectProperties, type IfcPropertyIndex } from "@/lib/web-ifc-properties";
 
 export interface FileEntry {
   fileId: string;
@@ -14,7 +15,47 @@ interface IfcViewerProps {
   onRemoveFile: (fileId: string) => void;
   availableFiles?: FileEntry[];
   onAddFile?: (fileId: string, fileName: string) => void;
+  /** Nom du type IFC à surligner (les autres objets passent en gris). null/undefined = pas de filtre. */
+  highlightTypeName?: string | null;
+  onClearHighlight?: () => void;
 }
+
+// Variantes de nom de propriété utilisées ailleurs dans l'app pour identifier le "Nom du type"
+const TYPE_NAME_PROPERTY_VARIANTS = ['nomdutype', 'typename', 'ifctype', 'typeifc'];
+
+function normaliseTypeName(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function lineDisplayName(line: unknown): string {
+  if (!line || typeof line !== "object") return "";
+  const name = (line as Record<string, unknown>).Name;
+  if (name && typeof name === "object" && "value" in (name as Record<string, unknown>)) {
+    return String((name as Record<string, unknown>).value ?? "");
+  }
+  if (typeof name === "string") return name;
+  return "";
+}
+
+function resolveTypeName(ifcApi: import("web-ifc").IfcAPI, modelID: number, expressID: number, propIndex: IfcPropertyIndex): string {
+  const { lookup } = getObjectProperties(ifcApi, modelID, expressID, propIndex);
+  for (const variant of TYPE_NAME_PROPERTY_VARIANTS) {
+    const val = lookup.get(variant);
+    if (val) return String(val);
+  }
+  const typeId = propIndex.definesByType.get(expressID);
+  if (typeId) {
+    try {
+      return lineDisplayName(ifcApi.GetLine(modelID, typeId));
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+const GRAY_MATERIAL = new THREE.MeshLambertMaterial({ color: 0x9ca3af, transparent: true, opacity: 0.15 });
+const HIGHLIGHT_MATERIAL = new THREE.MeshLambertMaterial({ color: 0xf95700, side: THREE.DoubleSide });
 
 // Palette de teintes HSL par modele (modele 0 = couleurs natives IFC)
 const PALETTE: Array<{ h: number; s: number } | null> = [
@@ -36,7 +77,7 @@ type ModelState = {
   meshCount: number;
 };
 
-export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles = [], onAddFile }: IfcViewerProps) {
+export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles = [], onAddFile, highlightTypeName, onClearHighlight }: IfcViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -213,8 +254,16 @@ export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles
         group.name = fileId;
         const palette = PALETTE[modelIndex % PALETTE.length];
         let meshCount = 0;
+        const propIndex = buildIfcPropertyIndex(ifcApi, modelID);
+        const typeNameCache = new Map<number, string>();
 
         ifcApi.StreamAllMeshes(modelID, (mesh) => {
+          let typeNameNormalised = typeNameCache.get(mesh.expressID);
+          if (typeNameNormalised === undefined) {
+            typeNameNormalised = normaliseTypeName(resolveTypeName(ifcApi, modelID, mesh.expressID, propIndex));
+            typeNameCache.set(mesh.expressID, typeNameNormalised);
+          }
+
           const geoms = mesh.geometries;
           for (let i = 0; i < geoms.size(); i++) {
             const placed = geoms.get(i);
@@ -250,6 +299,8 @@ export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles
 
             const m = new THREE.Mesh(geo, mat);
             m.applyMatrix4(new THREE.Matrix4().fromArray(Array.from(placed.flatTransformation)));
+            m.userData.typeNameNormalised = typeNameNormalised;
+            m.userData.originalMaterial = mat;
             group.add(m);
             meshCount++;
           }
@@ -292,6 +343,22 @@ export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles
     });
   }, [files, loadModel]);
 
+  // ─── Surlignage par type IFC (colore le type sélectionné, grise le reste) ─
+  useEffect(() => {
+    const target = highlightTypeName ? normaliseTypeName(highlightTypeName) : null;
+    groupsRef.current.forEach(group => {
+      group.children.forEach(child => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const original = child.userData.originalMaterial as THREE.Material | undefined;
+        if (!target) {
+          if (original) child.material = original;
+          return;
+        }
+        child.material = child.userData.typeNameNormalised === target ? HIGHLIGHT_MATERIAL : GRAY_MATERIAL;
+      });
+    });
+  }, [highlightTypeName, models]);
+
   function toggleVisibility(fileId: string) {
     const group = groupsRef.current.get(fileId);
     if (group) group.visible = !group.visible;
@@ -314,6 +381,16 @@ export default function IfcViewer({ files, onClose, onRemoveFile, availableFiles
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs text-slate-400">
+            {highlightTypeName && (
+              <span className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 px-3 py-1.5 rounded-lg font-semibold">
+                Surlignage : {highlightTypeName}
+                {onClearHighlight && (
+                  <button onClick={onClearHighlight} className="text-orange-400 hover:text-orange-700" title="Effacer le surlignage">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </span>
+            )}
             <span className="hidden sm:inline">Gauche : orbiter</span>
             <span className="hidden sm:inline">Droit : déplacer</span>
             <span className="hidden sm:inline">Molette : zoom</span>
