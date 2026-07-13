@@ -3320,6 +3320,85 @@ function MaquettesView({ audits, loading, onNewAnalysis, onView, onDelete, chapi
   );
 }
 
+// ─── Remplacement de version Box : upload direct navigateur → Box ────────────
+// Les fonctions serverless Vercel plafonnent la taille du corps de requête
+// bien en-deçà de la taille d'une maquette IFC ; on part donc directement du
+// navigateur vers l'API Box, en ne passant par notre backend que pour obtenir
+// un access token valide (route /api/box/client-token).
+
+async function simpleReplaceDirect(accessToken: string, file: File, fileId: string) {
+  const boxForm = new FormData();
+  boxForm.append('file', file);
+  const res = await fetch(`https://upload.box.com/api/2.0/files/${fileId}/content`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: boxForm,
+  });
+  return res.json();
+}
+
+async function chunkedReplaceDirect(accessToken: string, file: File, fileId: string) {
+  const CHUNK_SIZE = 8 * 1024 * 1024;
+  const fileSize = file.size;
+
+  const sessionRes = await fetch(`https://upload.box.com/api/2.0/files/${fileId}/upload_sessions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file_size: fileSize }),
+  });
+  const session = await sessionRes.json();
+  if (!session.id) throw new Error(`Session Box échouée : ${JSON.stringify(session)}`);
+
+  const uploadUrl = session.session_endpoints?.upload_part;
+  const fileBuffer = await file.arrayBuffer();
+  const parts: { part_id: string; offset: number; size: number }[] = [];
+
+  for (let offset = 0; offset < fileSize; offset += CHUNK_SIZE) {
+    const end = Math.min(offset + CHUNK_SIZE, fileSize);
+    const chunk = fileBuffer.slice(offset, end);
+    const hashBuffer = await crypto.subtle.digest('SHA-1', chunk);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const sha1Base64 = btoa(hashArray.map(b => String.fromCharCode(b)).join(''));
+
+    const partRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/octet-stream',
+        'Content-Range': `bytes ${offset}-${end - 1}/${fileSize}`,
+        Digest: `sha=` + sha1Base64,
+      },
+      body: chunk,
+    });
+    const partData = await partRes.json();
+    if (!partData.part) throw new Error(`Erreur chunk : ${JSON.stringify(partData)}`);
+    parts.push(partData.part);
+  }
+
+  const fullHash = await crypto.subtle.digest('SHA-1', fileBuffer);
+  const fullHashArray = Array.from(new Uint8Array(fullHash));
+  const fullSha1Base64 = btoa(fullHashArray.map(b => String.fromCharCode(b)).join(''));
+
+  const commitRes = await fetch(session.session_endpoints?.commit, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      Digest: `sha=` + fullSha1Base64,
+    },
+    body: JSON.stringify({ parts: parts.map(p => ({ part_id: p.part_id, offset: p.offset, size: p.size })) }),
+  });
+
+  if (commitRes.status === 202) {
+    await new Promise(r => setTimeout(r, 5000));
+    const statusRes = await fetch(`https://upload.box.com/api/2.0/files/upload_sessions/${session.id}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return statusRes.json();
+  }
+  return commitRes.json();
+}
+
 // ─── Dashboard principal ──────────────────────────────────────────────────────
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<string>('Tableau de bord');
@@ -3396,18 +3475,28 @@ export default function Dashboard() {
     if (!file.name.toLowerCase().endsWith('.ifc')) return alert('Seuls les fichiers .ifc sont acceptés');
     setReplacingAuditId(auditId);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('fileId', fileId);
-      const res = await fetch('/api/box/replace', { method: 'POST', body: formData });
-      const data = await readJsonResponse<{ error?: string; size?: number | null; modifiedAt?: string | null }>(res);
-      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      const tokenRes = await fetch('/api/box/client-token');
+      const tokenData = await readJsonResponse<{ error?: string; accessToken?: string }>(tokenRes);
+      if (!tokenRes.ok || !tokenData.accessToken) {
+        throw new Error(tokenData.error ?? 'Session Box expirée. Reconnectez-vous.');
+      }
+
+      // Upload direct navigateur → Box : contourne la limite de taille de payload
+      // des fonctions serverless Vercel, bien inférieure à la taille d'une maquette IFC.
+      const CHUNKED_THRESHOLD = 50 * 1024 * 1024;
+      const uploadData = file.size > CHUNKED_THRESHOLD
+        ? await chunkedReplaceDirect(tokenData.accessToken, file, fileId)
+        : await simpleReplaceDirect(tokenData.accessToken, file, fileId);
+
+      const boxFile = uploadData.entries?.[0] ?? uploadData;
+      if (!boxFile?.id) throw new Error(`Remplacement Box échoué : ${JSON.stringify(uploadData)}`);
+
       setFileInfoMap(prev => ({
         ...prev,
         [fileId]: {
-          size: data.size ?? prev[fileId]?.size ?? null,
+          size: typeof boxFile.size === 'number' ? boxFile.size : prev[fileId]?.size ?? null,
           createdAt: prev[fileId]?.createdAt ?? null,
-          modifiedAt: data.modifiedAt ?? new Date().toISOString(),
+          modifiedAt: boxFile.modified_at ?? new Date().toISOString(),
         },
       }));
     } catch (err: unknown) {
