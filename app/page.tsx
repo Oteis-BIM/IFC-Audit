@@ -532,6 +532,7 @@ type ParametresSavedState = {
   moaOptions: string[];
   propsCategories: PropsCategoryData[] | null;
   propCheckResults: Record<string, PropCheckResult>;
+  categoryProps: Record<string, string[]>;
   savedAt: string;
 };
 
@@ -1024,6 +1025,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       moaOptions: overrides.moaOptions ?? moaOptions,
       propsCategories: overrides.propsCategories ?? propsCategories,
       propCheckResults: overrides.propCheckResults ?? propCheckResults,
+      categoryProps: overrides.categoryProps ?? categoryProps,
       savedAt: new Date().toISOString(),
     };
     const value = JSON.stringify(payload);
@@ -1047,8 +1049,37 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     moaOptions,
     propsCategories,
     propCheckResults,
+    categoryProps,
     parametresConfigKey,
   ]);
+
+  // Renomme une propriété attendue (colonne) pour une catégorie MOA donnée, et persiste le changement.
+  const renamePropertyColumn = useCallback((cat: string, oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    const catNorm = normalise(cat);
+
+    if (propsCategories) {
+      let matched = false;
+      const updated = propsCategories.map(pc => {
+        const isMatch = pc.nameNormalised === catNorm || pc.nameNormalised.includes(catNorm) || catNorm.includes(pc.nameNormalised);
+        if (!isMatch || !pc.properties.includes(oldName)) return pc;
+        matched = true;
+        return { ...pc, properties: pc.properties.map(p => (p === oldName ? trimmed : p)) };
+      });
+      if (matched) {
+        setPropsCategories(updated);
+        persistParametresState({ propsCategories: updated });
+        return;
+      }
+    }
+
+    if (categoryProps[cat]?.includes(oldName)) {
+      const updated = { ...categoryProps, [cat]: categoryProps[cat].map(p => (p === oldName ? trimmed : p)) };
+      setCategoryProps(updated);
+      persistParametresState({ categoryProps: updated });
+    }
+  }, [propsCategories, categoryProps, persistParametresState]);
 
   useEffect(() => {
     if (audits.length === 0) {
@@ -1093,6 +1124,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         setMoaOptions([]);
         setPropsCategories(null);
         setPropCheckResults({});
+        setCategoryProps(DEFAULT_CATEGORY_PROPS);
         setImportStatus(null);
         setPropCheckError(null);
         setParametresLoading(false);
@@ -1105,6 +1137,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         setMoaOptions(Array.isArray(parsed.moaOptions) ? parsed.moaOptions : []);
         setPropsCategories(Array.isArray(parsed.propsCategories) ? parsed.propsCategories : null);
         setPropCheckResults(parsed.propCheckResults ?? {});
+        setCategoryProps(parsed.categoryProps && Object.keys(parsed.categoryProps).length > 0 ? parsed.categoryProps : DEFAULT_CATEGORY_PROPS);
         setImportStatus({ ok: true, msg: `DonnÃ©es restaurÃ©es pour "${auditProjectName}".` });
         setPropCheckError(null);
       } catch {
@@ -1112,6 +1145,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
         setMoaOptions([]);
         setPropsCategories(null);
         setPropCheckResults({});
+        setCategoryProps(DEFAULT_CATEGORY_PROPS);
         setImportStatus({ ok: false, msg: 'DonnÃ©es sauvegardÃ©es illisibles pour cette maquette.' });
       } finally {
         setParametresLoading(false);
@@ -1896,7 +1930,15 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[120px]">Type IFC</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[150px]">Classes IFC</th>
                             {props.map(p => (
-                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[110px] border-l border-slate-200 bg-indigo-50/60 leading-tight">{p}</th>
+                              <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[110px] border-l border-slate-200 bg-indigo-50/60 leading-tight">
+                                <input
+                                  defaultValue={p}
+                                  title="Renommer la propriété attendue — cliquez sur &quot;Vérifier cette carte&quot; après modification"
+                                  onBlur={e => renamePropertyColumn(cat, p, e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                  className="w-full bg-transparent text-center font-semibold text-[#3b1f6e] text-[10px] leading-tight border-0 border-b border-dashed border-indigo-200 focus:outline-none focus:border-indigo-500 focus:bg-white rounded-sm"
+                                />
+                              </th>
                             ))}
                           </tr>
                         </thead>
