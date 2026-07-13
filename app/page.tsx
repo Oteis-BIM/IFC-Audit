@@ -1978,6 +1978,14 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                   }
                                   const val = checkResult.props[p];
                                   const isPresent = val !== null && val !== undefined && val !== '';
+                                  if (missingOnly && isPresent) {
+                                    // Filtre "Manquants seulement" actif : on masque les propriétés déjà renseignées.
+                                    return (
+                                      <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-slate-50/40">
+                                        <span className="text-slate-300 text-[10px]">—</span>
+                                      </td>
+                                    );
+                                  }
                                   return (
                                     <td key={p} className={`px-3 py-2.5 text-center border-l border-slate-100 ${isPresent ? 'bg-emerald-50/40' : 'bg-red-50/30'}`}>
                                       {isPresent ? (
