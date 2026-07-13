@@ -515,6 +515,15 @@ export function extractPropsFromIfc(raw: string, requests: PropCheckRequest[]): 
         const realName = stepStr(parseArgs(body)[2] ?? '');
         if (realName) ifcName = realName;
       }
+
+      // Classe du Type IFC associé (ex: IfcElectricApplianceType → IfcElectricAppliance) :
+      // un objet peut être conforme via son entité directe OU via son Type.
+      const typeId = instanceToType.get(id);
+      const typeBody = typeId ? index.get(typeId) : undefined;
+      if (typeBody) {
+        const typeEntityName = getEntityTypeName(typeBody).replace(/Type$/i, '');
+        if (typeEntityName) ifcClassesFound.add(typeEntityName);
+      }
     }
 
     for (const id of expandedIds) {
