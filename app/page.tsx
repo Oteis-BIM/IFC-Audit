@@ -3517,6 +3517,14 @@ export default function Dashboard() {
     return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
+  function formatFileDateTime(iso: string | null): string {
+    if (!iso) return '—';
+    const date = new Date(iso);
+    const datePart = date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timePart = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return `${datePart} à ${timePart}`;
+  }
+
   function addFiles(files: FileList | File[]) {
     const ifc = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.ifc'));
     if (ifc.length === 0) return alert('Seuls les fichiers .ifc sont acceptés');    setSelectedFiles(prev => [
@@ -4048,7 +4056,7 @@ export default function Dashboard() {
                       <div className="text-[10px] text-slate-400 border-t border-slate-100 pt-2 space-y-0.5">
                         <p>Poids : <span className="font-semibold text-slate-500">{formatFileSize(info?.size ?? null)}</span></p>
                         <p>Créé le : <span className="font-semibold text-slate-500">{formatFileDate(info?.createdAt ?? null)}</span></p>
-                        <p>Modifié le : <span className="font-semibold text-slate-500">{formatFileDate(info?.modifiedAt ?? null)}</span></p>
+                        <p>Modifié le : <span className="font-semibold text-slate-500">{formatFileDateTime(info?.modifiedAt ?? null)}</span></p>
                       </div>
                     )}
                   </div>
