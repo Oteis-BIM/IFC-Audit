@@ -999,6 +999,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
   const [propsCategories, setPropsCategories] = useState<PropsCategoryData[] | null>(null);
   const [propCheckResults, setPropCheckResults] = useState<Record<string, PropCheckResult>>({});
   const [propCheckLoading, setPropCheckLoading] = useState(false);
+  // Portée de la vérification en cours : 'all' (globale) ou le nom d'une catégorie MOA précise
+  const [checkingScope, setCheckingScope] = useState<string | 'all' | null>(null);
   const [propCheckError, setPropCheckError] = useState<string | null>(null);
   const [propCheckProgress, setPropCheckProgress] = useState({ value: 0, label: '' });
   const [parametresLoading, setParametresLoading] = useState(false);
@@ -1228,18 +1230,23 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
 
   useEffect(() => stopPropCheckProgress, [stopPropCheckProgress]);
 
-  const handleCheckIFCProps = useCallback(async () => {
+  const handleCheckIFCProps = useCallback(async (categoryFilter?: string) => {
     if (!selectedAudit) { setPropCheckError('Sélectionnez une maquette IFC.'); return; }
     if (!propsCategories || propsCategories.length === 0) { setPropCheckError('Chargez d\'abord le fichier de propriétés.'); return; }
     const { fileId } = parseMaquetteDetails(selectedAudit.details);
     if (!fileId) { setPropCheckError('Aucun fichier IFC associé à cette maquette.'); return; }
 
     setPropCheckLoading(true);
+    setCheckingScope(categoryFilter ?? 'all');
     setPropCheckError(null);
     setPropCheckProgress({ value: 8, label: 'Preparation des controles' });
     stopPropCheckProgress();
-    setPropCheckResults({});    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
-    const rawRequests = excelRows
+    // Vérification globale : on repart d'une table vide. Vérification d'une seule carte :
+    // on conserve les résultats des autres catégories déjà vérifiées.
+    if (!categoryFilter) setPropCheckResults({});
+    const rowsToCheck = categoryFilter ? excelRows.filter(row => row.categorieMoa === categoryFilter) : excelRows;
+    // Construit les requêtes : 1 requête par nomDuType unique + ses propriétés attendues
+    const rawRequests = rowsToCheck
       .filter(row => row.nomDuType)
       .map(row => {
         const catNorm = normalise(row.categorieMoa);
@@ -1278,6 +1285,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     if (requests.length === 0) {
       setPropCheckError('Aucune classe IFC ou propriété à vérifier — vérifiez que le mapping Excel est chargé.');
       setPropCheckLoading(false);
+      setCheckingScope(null);
       setPropCheckProgress({ value: 0, label: '' });
       return;
     }
@@ -1335,7 +1343,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
       for (const r of (data.results as PropCheckResult[])) {
         resultMap[normalise(r.nomDuType)] = r;
       }
-      setPropCheckResults(resultMap);
+      // En vérification ciblée, on fusionne avec les résultats déjà connus des autres cartes.
+      const mergedResults = categoryFilter ? { ...propCheckResults, ...resultMap } : resultMap;
+      setPropCheckResults(mergedResults);
       await supabase.from('audit_config').upsert(
         {
           key: `ifc_prop_check_results_maquette_${selectedAudit.id}`,
@@ -1343,14 +1353,14 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
             auditId: selectedAudit.id,
             fileName: selectedAudit.project_name,
             fileId,
-            results: resultMap,
+            results: mergedResults,
             checkedAt: new Date().toISOString(),
           }),
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'key' }
       );
-      await persistParametresState({ propCheckResults: resultMap });
+      await persistParametresState({ propCheckResults: mergedResults });
       localStorage.setItem('ifc-props-check-estimate', JSON.stringify({
         workUnits,
         durationMs: Date.now() - startedAt,
@@ -1362,8 +1372,9 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     } finally {
       stopPropCheckProgress();
       setPropCheckLoading(false);
+      setCheckingScope(null);
     }
-  }, [selectedAudit, excelRows, propsCategories, stopPropCheckProgress, persistParametresState]);
+  }, [selectedAudit, excelRows, propsCategories, propCheckResults, stopPropCheckProgress, persistParametresState]);
 
   // ── Import direct : détection auto du format (long ou large) ──────────────
   const handlePropsExcelImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1805,6 +1816,8 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                 const conformRate  = totalChecks > 0 ? Math.round((filledCount / totalChecks) * 100) : null;
                 const rateColor    = conformRate === null ? '' : conformRate >= 80 ? 'text-emerald-300' : conformRate >= 50 ? 'text-orange-300' : 'text-red-300';
                 const rateBg       = conformRate === null ? '' : conformRate >= 80 ? 'bg-emerald-500/20 border-emerald-400' : conformRate >= 50 ? 'bg-orange-500/20 border-orange-400' : 'bg-red-500/20 border-red-400';
+                // Cette carte est-elle en cours de vérification (globale ou ciblée sur elle) ?
+                const isCheckingThisCard = checkingScope === 'all' || checkingScope === cat;
 
                 return (
                   <div key={cat} className="rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1822,13 +1835,13 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                           </span>
                         )}
                         {/* Statut de vérification */}
-                        {propCheckLoading && (
+                        {isCheckingThisCard && (
                           <span className="text-[11px] text-white/50 italic flex items-center gap-1">
                             <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
                             Vérification…
                           </span>
                         )}
-                        {!propCheckLoading && isVerified && conformRate !== null && (
+                        {!isCheckingThisCard && isVerified && conformRate !== null && (
                           <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${rateBg} ${rateColor}`}>
                             {conformRate === 100
                               ? <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg> 100% conforme</>
@@ -1836,22 +1849,37 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             }
                           </span>
                         )}
-                        {!propCheckLoading && isVerified && missingCount > 0 && (
+                        {!isCheckingThisCard && isVerified && missingCount > 0 && (
                           <span className="text-[11px] text-red-300 bg-red-500/15 border border-red-400/40 px-2 py-0.5 rounded-full">
                             {missingCount} manquant{missingCount > 1 ? 's' : ''}
                           </span>
                         )}
-                        {!propCheckLoading && !isVerified && hasProps && Object.keys(propCheckResults).length === 0 && (
+                        {!isCheckingThisCard && !isVerified && hasProps && Object.keys(propCheckResults).length === 0 && (
                           <span className="text-[11px] text-white/30 italic">Non vérifié</span>
                         )}
                       </div>
-                      <button
-                        onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
-                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-500/20 border-orange-400 text-orange-300' : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10'}`}
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
-                        Manquants seulement
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleCheckIFCProps(cat)}
+                          disabled={propCheckLoading || !hasProps || !selectedAudit}
+                          title={!hasProps ? 'Aucune propriété à vérifier pour cette catégorie' : 'Vérifier uniquement cette carte'}
+                          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          {isCheckingThisCard ? (
+                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                          ) : (
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                          )}
+                          Vérifier cette carte
+                        </button>
+                        <button
+                          onClick={() => setFilterMissing(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${missingOnly ? 'bg-orange-500/20 border-orange-400 text-orange-300' : 'bg-white/5 border-white/20 text-white/60 hover:bg-white/10'}`}
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
+                          Manquants seulement
+                        </button>
+                      </div>
                     </div>
 
                     {/* Tableau */}                <div className="overflow-x-auto">
@@ -1903,7 +1931,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                   <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
                                 </td>
                                 <td className="px-4 py-2.5">
-                                  {propCheckLoading ? (
+                                  {isCheckingThisCard ? (
                                     <span className="inline-block h-5 w-24 rounded-full bg-slate-200 animate-pulse" />
                                   ) : (
                                     <div className="flex flex-col items-start gap-0.5">
@@ -1928,7 +1956,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                   )}
                                 </td>
                                 {props.map(p => {
-                                  if (propCheckLoading) {
+                                  if (isCheckingThisCard) {
                                     return (
                                       <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-indigo-50/20">
                                         <span className="inline-block w-4 h-4 rounded bg-slate-200 animate-pulse mx-auto" />
@@ -3251,6 +3279,12 @@ export default function Dashboard() {
   const [deleteTarget, setDeleteTarget] = useState<Audit | null>(null);
   const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Métadonnées Box (poids, dates) par fileId — pour les cartes du Tableau de bord
+  const [fileInfoMap, setFileInfoMap] = useState<Record<string, { size: number | null; createdAt: string | null; modifiedAt: string | null }>>({});
+  const fetchedFileInfoIds = useRef<Set<string>>(new Set());
+  const [replacingAuditId, setReplacingAuditId] = useState<number | null>(null);
+  const [replaceTargetId, setReplaceTargetId] = useState<number | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
 
   async function fetchAudits() {
     setLoading(true);
@@ -3287,6 +3321,57 @@ export default function Dashboard() {
 
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  // Récupère le poids et les dates Box de chaque maquette (une seule fois par fileId)
+  useEffect(() => {
+    audits.forEach(a => {
+      const { fileId } = parseMaquetteDetails(a.details);
+      if (!fileId || fetchedFileInfoIds.current.has(fileId)) return;
+      fetchedFileInfoIds.current.add(fileId);
+      fetch(`/api/box/info?fileId=${fileId}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          if (data) setFileInfoMap(prev => ({ ...prev, [fileId]: data }));
+        })
+        .catch(() => {});
+    });
+  }, [audits]);
+
+  async function handleReplaceFile(auditId: number, fileId: string, file: File) {
+    if (!file.name.toLowerCase().endsWith('.ifc')) return alert('Seuls les fichiers .ifc sont acceptés');
+    setReplacingAuditId(auditId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('fileId', fileId);
+      const res = await fetch('/api/box/replace', { method: 'POST', body: formData });
+      const data = await readJsonResponse<{ error?: string; size?: number | null; modifiedAt?: string | null }>(res);
+      if (!res.ok) throw new Error(data.error ?? `Erreur ${res.status}`);
+      setFileInfoMap(prev => ({
+        ...prev,
+        [fileId]: {
+          size: data.size ?? prev[fileId]?.size ?? null,
+          createdAt: prev[fileId]?.createdAt ?? null,
+          modifiedAt: data.modifiedAt ?? new Date().toISOString(),
+        },
+      }));
+    } catch (err: unknown) {
+      alert(`Échec du chargement de la nouvelle version : ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setReplacingAuditId(null);
+    }
+  }
+
+  function formatFileSize(bytes: number | null): string {
+    if (bytes === null) return '—';
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  }
+
+  function formatFileDate(iso: string | null): string {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
 
   function addFiles(files: FileList | File[]) {
     const ifc = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.ifc'));
@@ -3785,7 +3870,9 @@ export default function Dashboard() {
           ) : (            <div className="grid grid-cols-4 gap-6 mb-10">
               {audits.map((a) => {
                 const style = getStyle(a.status);
-                const { discipline } = parseMaquetteDetails(a.details);
+                const { fileId, discipline } = parseMaquetteDetails(a.details);
+                const info = fileId ? fileInfoMap[fileId] : undefined;
+                const isReplacing = replacingAuditId === a.id;
                 return (
                   <div key={a.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm relative group">
                     <div className="flex justify-between items-start mb-4">
@@ -3793,6 +3880,16 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2">
                         <span className={`text-[10px] font-bold px-2 py-1 rounded ${style.bg} ${style.color}`}>{style.label}</span>
                         <button onClick={() => handleView(a.details, a.project_name)} className="text-blue-400 hover:text-blue-600 transition-colors" title="Visualiser"><Eye className="h-4 w-4" /></button>
+                        {fileId && (
+                          <button
+                            onClick={() => { setReplaceTargetId(a.id); replaceInputRef.current?.click(); }}
+                            disabled={isReplacing}
+                            className="text-slate-400 hover:text-emerald-600 transition-colors disabled:opacity-40"
+                            title="Charger une nouvelle version (écrase la précédente)"
+                          >
+                            {isReplacing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                          </button>
+                        )}
                         <button onClick={() => handleDelete(a.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Supprimer"><X className="h-4 w-4" /></button>
                       </div>
                     </div>
@@ -3803,9 +3900,32 @@ export default function Dashboard() {
                     <p className="text-[10px] text-slate-400 mb-2 italic">
                       {new Date(a.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </p>
+                    {fileId && (
+                      <div className="text-[10px] text-slate-400 border-t border-slate-100 pt-2 space-y-0.5">
+                        <p>Poids : <span className="font-semibold text-slate-500">{formatFileSize(info?.size ?? null)}</span></p>
+                        <p>Créé le : <span className="font-semibold text-slate-500">{formatFileDate(info?.createdAt ?? null)}</span></p>
+                        <p>Modifié le : <span className="font-semibold text-slate-500">{formatFileDate(info?.modifiedAt ?? null)}</span></p>
+                      </div>
+                    )}
                   </div>
                 );
               })}
+              <input
+                ref={replaceInputRef}
+                type="file"
+                accept=".ifc"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  const auditId = replaceTargetId;
+                  e.target.value = '';
+                  if (!file || auditId === null) return;
+                  const audit = audits.find(x => x.id === auditId);
+                  const { fileId } = parseMaquetteDetails(audit?.details ?? null);
+                  if (!fileId) return;
+                  handleReplaceFile(auditId, fileId, file);
+                }}
+              />
             </div>
           )}            </>
           )}

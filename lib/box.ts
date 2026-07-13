@@ -80,6 +80,12 @@ export async function fetchBoxFileContent(fileId: string, accessToken: string): 
   });
 }
 
+export async function fetchBoxFileInfo(fileId: string, accessToken: string): Promise<Response> {
+  return fetch(`https://api.box.com/2.0/files/${fileId}?fields=name,size,created_at,modified_at`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
 export async function deleteBoxFile(fileId: string, accessToken: string): Promise<Response> {
   return fetch(`https://api.box.com/2.0/files/${fileId}`, {
     method: 'DELETE',
