@@ -1797,10 +1797,15 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                   ? rowsForCat.filter(obj => {
                       const check = propCheckResults[normalise(obj.nomDuType)];
                       if (!check) return false; // pas encore vérifié → masqué en mode "manquants"
-                      return props.some(p => {
+                      const propsMissing = props.some(p => {
                         const val = check.props[p];
                         return val === null || val === undefined || val === '';
                       });
+                      // "Manquants" couvre aussi les écarts de classe IFC (objet absent ou mauvaise classe),
+                      // pour rester utile même sur les catégories sans propriétés à contrôler.
+                      const classStatus = getIfcClassCheck(expectedIfcClasses, check).status;
+                      const classMismatch = classStatus === 'error' || classStatus === 'missing';
+                      return propsMissing || classMismatch;
                     })
                   : rowsForCat;                const hasProps = props.length > 0;
 
