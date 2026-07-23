@@ -1494,21 +1494,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           <p className="text-slate-500 text-sm mt-1">Mappage des types IFC et vérification des propriétés par catégorie</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <select
-            value={selectedAuditId ?? ''}
-            onChange={e => {
-              const auditId = Number(e.target.value);
-              localStorage.setItem('parametres_selected_audit_id', String(auditId));
-              setSelectedAuditId(auditId);
-            }}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          >
-            {audits.map(a => {
-              const { discipline } = parseMaquetteDetails(a.details);
-              return <option key={a.id} value={a.id}>{discipline ? `${discipline} — ` : ''}{a.project_name}</option>;
-            })}
-          </select>
-
           <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
@@ -1520,6 +1505,31 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleExcelImport} />
         </div>
+      </div>
+
+      {/* ── Sous-onglets par maquette ── */}
+      <div className="flex items-center gap-1 border-b border-slate-200 overflow-x-auto">
+        {audits.map(a => {
+          const { discipline } = parseMaquetteDetails(a.details);
+          const isActive = a.id === selectedAuditId;
+          return (
+            <button
+              key={a.id}
+              onClick={() => {
+                localStorage.setItem('parametres_selected_audit_id', String(a.id));
+                setSelectedAuditId(a.id);
+              }}
+              className={`shrink-0 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+                isActive
+                  ? 'text-blue-600 border-blue-600'
+                  : 'text-slate-400 border-transparent hover:text-slate-600 hover:border-slate-300'
+              }`}
+            >
+              {discipline && <span className="block text-[10px] font-bold uppercase tracking-wide opacity-70">{discipline}</span>}
+              {a.project_name}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Bandeau statut ── */}
@@ -1842,6 +1852,16 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                       return propsMissing || classMismatch;
                     })
                   : rowsForCat;                const hasProps = props.length > 0;
+                // Filtre "Manquants seulement" actif : ne conserve que les colonnes ayant
+                // au moins une valeur manquante parmi les lignes affichées, masque les autres.
+                const displayedProps = missingOnly
+                  ? props.filter(p => displayedRows.some(obj => {
+                      const check = propCheckResults[normalise(obj.nomDuType)];
+                      if (!check) return false;
+                      const val = check.props[p];
+                      return val === null || val === undefined || val === '';
+                    }))
+                  : props;
 
                 // ── Stats de conformité (calculées depuis propCheckResults) ──
                 const checkedRows = rowsForCat.filter(obj => propCheckResults[normalise(obj.nomDuType)]);
@@ -1929,7 +1949,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[200px]">Nom du type</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[120px]">Type IFC</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[150px]">Classes IFC</th>
-                            {props.map(p => (
+                            {displayedProps.map(p => (
                               <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[110px] border-l border-slate-200 bg-indigo-50/60 leading-tight">
                                 <input
                                   defaultValue={p}
@@ -2002,7 +2022,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                     </div>
                                   )}
                                 </td>
-                                {props.map(p => {
+                                {displayedProps.map(p => {
                                   if (isCheckingThisCard) {
                                     return (
                                       <td key={p} className="px-3 py-2.5 text-center border-l border-slate-100 bg-indigo-50/20">
@@ -2052,7 +2072,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             );
                           })}
                           {displayedRows.length === 0 && (
-                            <tr><td colSpan={4 + props.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun élément à afficher.</td></tr>
+                            <tr><td colSpan={4 + displayedProps.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun élément à afficher.</td></tr>
                           )}
                         </tbody>
                       </table>
