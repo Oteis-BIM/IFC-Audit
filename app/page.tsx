@@ -1488,15 +1488,42 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
     <div className="space-y-8">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900">Paramètres</h2>
-          <p className="text-slate-500 text-sm mt-1">Mappage des types IFC et vérification des propriétés par catégorie</p>
+      <div>
+        <h2 className="text-3xl font-bold text-slate-900">Paramètres</h2>
+        <p className="text-slate-500 text-sm mt-1">Mappage des types IFC et vérification des propriétés par catégorie</p>
+      </div>
+
+      {/* ── Sous-onglets par maquette + action liée à la maquette active ── */}
+      <div className="flex items-end justify-between gap-3 border-b-2 border-slate-300">
+        <div className="flex items-end gap-1 overflow-x-auto flex-1 min-w-0">
+          {audits.map(a => {
+            const { discipline } = parseMaquetteDetails(a.details);
+            const isActive = a.id === selectedAuditId;
+            return (
+              <button
+                key={a.id}
+                onClick={() => {
+                  localStorage.setItem('parametres_selected_audit_id', String(a.id));
+                  setSelectedAuditId(a.id);
+                }}
+                className={`relative shrink-0 px-4 pt-2.5 pb-2 text-sm font-semibold rounded-t-lg border transition-all ${
+                  isActive
+                    ? '-mb-0.5 z-10 bg-white border-slate-300 border-b-white text-blue-700 shadow-[0_-3px_6px_-2px_rgba(15,23,42,0.12)]'
+                    : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200 hover:text-slate-700'
+                }`}
+              >
+                {discipline && <span className="block text-[10px] font-bold uppercase tracking-wide opacity-70">{discipline}</span>}
+                {a.project_name}
+              </button>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-3 shrink-0 mb-2">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            disabled={!selectedAudit}
+            title={selectedAudit ? `Charger le mappage pour "${selectedAudit.project_name}"` : 'Sélectionnez une maquette'}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1505,31 +1532,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
           </button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleExcelImport} />
         </div>
-      </div>
-
-      {/* ── Sous-onglets par maquette ── */}
-      <div className="flex items-center gap-1 border-b border-slate-200 overflow-x-auto">
-        {audits.map(a => {
-          const { discipline } = parseMaquetteDetails(a.details);
-          const isActive = a.id === selectedAuditId;
-          return (
-            <button
-              key={a.id}
-              onClick={() => {
-                localStorage.setItem('parametres_selected_audit_id', String(a.id));
-                setSelectedAuditId(a.id);
-              }}
-              className={`shrink-0 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
-                isActive
-                  ? 'text-blue-600 border-blue-600'
-                  : 'text-slate-400 border-transparent hover:text-slate-600 hover:border-slate-300'
-              }`}
-            >
-              {discipline && <span className="block text-[10px] font-bold uppercase tracking-wide opacity-70">{discipline}</span>}
-              {a.project_name}
-            </button>
-          );
-        })}
       </div>
 
       {/* ── Bandeau statut ── */}
@@ -1948,7 +1950,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[160px]">Composant Solibri</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[200px]">Nom du type</th>
                             <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[120px]">Type IFC</th>
-                            <th className="text-left px-4 py-2.5 font-bold text-slate-400 text-[10px] uppercase tracking-wider min-w-[150px]">Classes IFC</th>
                             {displayedProps.map(p => (
                               <th key={p} className="text-center px-3 py-2.5 font-semibold text-[#3b1f6e] text-[10px] min-w-[110px] border-l border-slate-200 bg-indigo-50/60 leading-tight">
                                 <input
@@ -1966,7 +1967,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                           {displayedRows.map((obj, oi) => {
                             // Cherche les résultats IFC pour ce nomDuType
                             const checkResult = propCheckResults[normalise(obj.nomDuType)];
-                            const ifcClassCheck = getIfcClassCheck(expectedIfcClasses, checkResult);
                             const hasResults  = !!checkResult;
                             return (
                               <tr key={oi} className={`border-b border-slate-100 ${oi % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-indigo-50/20 transition-colors`}>
@@ -1996,31 +1996,6 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                                 </td>
                                 <td className="px-4 py-2.5">
                                   <span className="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded font-mono">{obj.type || '—'}</span>
-                                </td>
-                                <td className="px-4 py-2.5">
-                                  {isCheckingThisCard ? (
-                                    <span className="inline-block h-5 w-24 rounded-full bg-slate-200 animate-pulse" />
-                                  ) : (
-                                    <div className="flex flex-col items-start gap-0.5">
-                                      <span
-                                        title={ifcClassCheck.detail}
-                                        className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                                          ifcClassCheck.status === 'ok'
-                                            ? 'bg-emerald-100 text-emerald-700'
-                                            : ifcClassCheck.status === 'error'
-                                              ? 'bg-red-50 text-red-600'
-                                              : ifcClassCheck.status === 'missing'
-                                                ? 'bg-amber-50 text-amber-600'
-                                                : 'bg-slate-100 text-slate-500'
-                                        }`}
-                                      >
-                                        {ifcClassCheck.status === 'ok' ? '✓' : ifcClassCheck.status === 'error' ? '✗' : '…'} {ifcClassCheck.label}
-                                      </span>
-                                      {ifcClassCheck.detail && (
-                                        <span className="text-[10px] text-slate-400 leading-tight max-w-[180px]">{ifcClassCheck.detail}</span>
-                                      )}
-                                    </div>
-                                  )}
                                 </td>
                                 {displayedProps.map(p => {
                                   if (isCheckingThisCard) {
@@ -2072,7 +2047,7 @@ function ParametresView({ audits, loading }: { audits: Audit[]; loading: boolean
                             );
                           })}
                           {displayedRows.length === 0 && (
-                            <tr><td colSpan={4 + displayedProps.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun élément à afficher.</td></tr>
+                            <tr><td colSpan={3 + displayedProps.length} className="text-center py-6 text-slate-400 italic text-xs">Aucun élément à afficher.</td></tr>
                           )}
                         </tbody>
                       </table>
