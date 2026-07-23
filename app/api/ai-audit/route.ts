@@ -1,8 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import OpenAI from 'openai';
-import { fetchBoxFileContent, getBoxAuthFromCookies, setBoxTokenCookies } from '@/lib/box';
 
 const MAX_IFC_CHARS = 18000;
+
+async function refreshAccessToken(refreshToken: string) {
+  const res = await fetch('https://api.box.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: process.env.BOX_CLIENT_ID!,
+      client_secret: process.env.BOX_CLIENT_SECRET!,
+    }),
+  });
+  return res.json();
+}
 
 function buildEntityIndex(raw: string): Map<string, string> {
   const index = new Map<string, string>();
@@ -289,12 +303,20 @@ export async function POST(req: NextRequest) {
       ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}),
     });
 
-    const auth = await getBoxAuthFromCookies();
-    if (!auth) {
+    const cookieStore = await cookies();
+    let accessToken = cookieStore.get('box_access_token')?.value;
+    const refreshToken = cookieStore.get('box_refresh_token')?.value;
+    if (!accessToken && refreshToken) {
+      const tokens = await refreshAccessToken(refreshToken);
+      accessToken = tokens.access_token;
+    }
+    if (!accessToken) {
       return NextResponse.json({ error: 'Non authentifie sur Box' }, { status: 401 });
     }
 
-    const boxRes = await fetchBoxFileContent(fileId, auth.accessToken);
+    const boxRes = await fetch(`https://api.box.com/2.0/files/${fileId}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     if (!boxRes.ok) {
       return NextResponse.json({ error: `Erreur Box ${boxRes.status}` }, { status: 502 });
     }
@@ -472,14 +494,12 @@ Retourne le JSON de conformite pour : ${criteriaIds}.`;
     }
     // ── Fin post-traitement ──
 
-    const response = NextResponse.json({
+    return NextResponse.json({
       results,
       facts,
       model: completion.model,
       tokensUsed: completion.usage?.total_tokens ?? 0,
     });
-    if (auth.refreshedTokens) setBoxTokenCookies(response, auth.refreshedTokens);
-    return response;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
